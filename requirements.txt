@@ -1,0 +1,21 @@
+# YT-Short-Clipper Dependencies
+# ==============================
+
+# OpenAI API (GPT-4 for highlights, TTS for hooks)
+openai>=1.0.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Computer Vision (face detection, speaker tracking)
+opencv-python>=4.8.0
+
+# Numerical operations
+numpy>=1.24.0
+
+# Speech recognition (auto captions)
+openai-whisper>=20231117
+
+# Note: System dependencies required (not installable via pip):
+# - FFmpeg 4.4+ (video processing)
+# - yt-dlp (YouTube downloading) - can also install via: pip install yt-dlp
