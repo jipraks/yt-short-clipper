@@ -275,6 +275,29 @@ Each clip folder contains a `data.json` file with metadata:
 
 All settings can be configured through the GUI Settings page (⚙️ button in the app).
 
+### 🎯 AI Provider Selection (NEW! ✨)
+
+The app now features **intelligent AI provider selection** with auto-fill:
+
+**Supported Providers (10+):**
+- 🔴 **OpenAI** - GPT-4o, GPT-4, GPT-3.5-turbo (recommended for quality)
+- 🔵 **Google Gemini** - Gemini-2.5-flash, Gemini-1.5-pro (free tier available)
+- ⚡ **Groq** - Mixtral-8x7b, Llama2-70b (fastest + free)
+- 🤖 **Anthropic Claude** - Claude-3-5-sonnet, Claude-3-opus
+- And 6 more providers...
+
+**How it works:**
+1. Open Settings → AI API Settings
+2. Choose any tab (Highlight Finder, Caption Maker, etc.)
+3. Click AI Provider dropdown
+4. Select your provider
+5. ✨ **URL auto-fills** | ✨ **Model auto-loads**
+6. Just paste API key and save!
+
+**Setup time: 60 seconds** (vs 5-10 minutes manual setup)
+
+For detailed guide, see: [AI_PROVIDER_SELECTOR.md](AI_PROVIDER_SELECTOR.md)
+
 ### Highlight Detection Parameters
 
 | Parameter | Default | Description |

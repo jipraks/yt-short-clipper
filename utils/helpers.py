@@ -4,6 +4,7 @@ Helper utility functions for YT Short Clipper
 
 import sys
 import re
+import shutil
 from pathlib import Path
 
 
@@ -31,11 +32,24 @@ def get_ffmpeg_path():
 
 
 def get_ytdlp_path():
-    """Get yt-dlp executable path"""
+    """Get yt-dlp executable path
+    
+    Checks in order:
+    1. Bundled yt-dlp.exe (Windows)
+    2. yt-dlp in system PATH
+    3. Default "yt-dlp" command
+    """
     if getattr(sys, 'frozen', False):
         bundled = get_app_dir() / "yt-dlp.exe"
         if bundled.exists():
             return str(bundled)
+    
+    # Try to find yt-dlp in PATH
+    yt_dlp_path = shutil.which("yt-dlp")
+    if yt_dlp_path:
+        return yt_dlp_path
+    
+    # Fallback to command name (will work if it's in system PATH)
     return "yt-dlp"
 
 

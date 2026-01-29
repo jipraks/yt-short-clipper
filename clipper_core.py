@@ -16,6 +16,12 @@ from pathlib import Path
 from datetime import datetime
 from openai import OpenAI
 
+try:
+    import google.generativeai as genai
+    GOOGLE_GENAI_AVAILABLE = True
+except ImportError:
+    GOOGLE_GENAI_AVAILABLE = False
+
 # Hide console window on Windows
 SUBPROCESS_FLAGS = 0
 if sys.platform == "win32":
@@ -454,8 +460,34 @@ Transcript:
         
         return "\n".join(lines)
     
+    def _call_gemini_api(self, prompt: str) -> str:
+        """Call Google Gemini API directly (not via OpenAI SDK)"""
+        try:
+            # Get API key from highlight_client config
+            # The API key should be set in base_url as part of the request
+            hf_config = self.ai_providers.get("highlight_finder", {})
+            api_key = hf_config.get("api_key", "")
+            
+            if not api_key:
+                raise Exception("No API key configured for Google Gemini")
+            
+            # Configure genai with API key
+            genai.configure(api_key=api_key)
+            
+            # Create model and call API
+            model = genai.GenerativeModel(self.model)
+            response = model.generate_content(prompt)
+            
+            if not response.text:
+                raise Exception(f"Empty response from Gemini: {response}")
+            
+            return response.text
+        except Exception as e:
+            self.log(f"  ❌ Google Gemini API Error: {e}")
+            raise
+    
     def find_highlights(self, transcript: str, video_info: dict, num_clips: int) -> list:
-        """Find highlights using GPT"""
+        """Find highlights using GPT or Gemini"""
         self.log(f"[2/4] Finding highlights (using {self.model})...")
         
         request_clips = num_clips + 3
@@ -478,15 +510,22 @@ Transcript:
         if "{num_clips}" in self.system_prompt and "{num_clips}" in prompt:
             self.log("  ⚠ Warning: {num_clips} placeholder not replaced - check your system prompt")
 
-        response = self.highlight_client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=self.temperature,
-        )
-        
-        # Report token usage (input and output separately)
-        if response.usage:
-            self.report_tokens(response.usage.prompt_tokens, response.usage.completion_tokens, 0, 0)
+        # Check if using Google Gemini
+        if "gemini" in self.model.lower() and GOOGLE_GENAI_AVAILABLE:
+            result = self._call_gemini_api(prompt)
+        else:
+            # Use OpenAI SDK for OpenAI, Groq, Anthropic, etc.
+            response = self.highlight_client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=self.temperature,
+            )
+            
+            # Report token usage (input and output separately)
+            if response.usage:
+                self.report_tokens(response.usage.prompt_tokens, response.usage.completion_tokens, 0, 0)
+            
+            result = response.choices[0].message.content.strip()
         
         result = response.choices[0].message.content.strip()
         
