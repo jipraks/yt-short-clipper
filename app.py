@@ -52,6 +52,7 @@ OUTPUT_DIR = APP_DIR / "output"
 ASSETS_DIR = BUNDLE_DIR / "assets"
 ICON_PATH = ASSETS_DIR / "icon.png"
 ICON_ICO_PATH = ASSETS_DIR / "icon.ico"
+COOKIES_FILE = APP_DIR / "cookies.txt"  # NEW: Cookies file path
 
 
 class YTShortClipperApp(ctk.CTk):
@@ -67,6 +68,7 @@ class YTShortClipperApp(ctk.CTk):
         self.youtube_connected = False
         self.youtube_channel = None
         self.ytdlp_path = get_ytdlp_path()  # NEW: Store yt-dlp path for subtitle fetching
+        self.cookies_path = COOKIES_FILE  # NEW: Store cookies path
         
         self.title("YT Short Clipper")
         self.geometry("680x780")
@@ -94,6 +96,9 @@ class YTShortClipperApp(ctk.CTk):
         self.show_page("home")
         self.load_config()
         self.check_youtube_status()
+        
+        # Update start button state based on cookies
+        self.update_start_button_state()
         
         # Check for updates on startup
         threading.Thread(target=self.check_update_silent, daemon=True).start()
@@ -150,6 +155,10 @@ class YTShortClipperApp(ctk.CTk):
         self.current_thumbnail = None
         self.create_preview_placeholder()
         
+        # Reset subtitle state
+        self.subtitle_loaded = False
+        self.subtitle_frame.pack_forget()
+        
         # Reset clips input to default
         self.clips_var.set("5")
         
@@ -161,8 +170,8 @@ class YTShortClipperApp(ctk.CTk):
         self.caption_switch.configure(text="ON")
         self.hook_switch.configure(text="ON")
         
-        # Disable start button
-        self.start_btn.configure(state="disabled", fg_color="gray", hover_color="gray")
+        # Update start button state
+        self.update_start_button_state()
 
     def create_home_page(self):
         page = ctk.CTkFrame(self.container, fg_color=("#1a1a1a", "#0a0a0a"))
@@ -211,36 +220,65 @@ class YTShortClipperApp(ctk.CTk):
         
         self.url_var = ctk.StringVar()
         self.url_var.trace("w", self.on_url_change)
-        url_entry = ctk.CTkEntry(url_input_container, textvariable=self.url_var, 
-            placeholder_text="Paste YouTube link here...", height=40, border_width=0,
-            fg_color="transparent")
-        url_entry.pack(side="left", fill="x", expand=True, padx=(4, 8))
+        self.url_entry = ctk.CTkEntry(url_input_container, textvariable=self.url_var, 
+            placeholder_text="Paste YouTube link here...", height=40, border_width=1,
+            border_color=("#3a3a3a", "#2a2a2a"),
+            fg_color=("#1a1a1a", "#0a0a0a"))
+        self.url_entry.pack(side="left", fill="x", expand=True, padx=(4, 8))
         
         # Paste button
-        paste_btn = ctk.CTkButton(url_input_container, text="📋 Paste", width=80, height=36,
+        self.paste_btn = ctk.CTkButton(url_input_container, text="📋 Paste", width=80, height=36,
             fg_color=("#3a3a3a", "#2a2a2a"), hover_color=("#4a4a4a", "#3a3a3a"),
             font=ctk.CTkFont(size=11), command=self.paste_url)
-        paste_btn.pack(side="right")
+        self.paste_btn.pack(side="right")
         
-        # Subtitle selector (hidden by default)
-        self.subtitle_frame = ctk.CTkFrame(url_frame, fg_color="transparent")
-        self.subtitle_frame.pack(fill="x", padx=8, pady=(0, 8))
+        options_frame = ctk.CTkFrame(url_frame, fg_color="transparent")
+        options_frame.pack(fill="x", padx=8, pady=(0, 8))
+        
+        # Subtitle selector (hidden by default) - own row
+        self.subtitle_frame = ctk.CTkFrame(options_frame, fg_color="transparent")
+        self.subtitle_frame.pack(fill="x", pady=(0, 8))
         self.subtitle_frame.pack_forget()  # Hide initially
+        self.subtitle_loaded = False  # Track if subtitles loaded successfully
         
         subtitle_label = ctk.CTkLabel(self.subtitle_frame, text="Subtitle Language:", 
             font=ctk.CTkFont(size=11), anchor="w")
-        subtitle_label.pack(side="left", padx=(4, 8))
+        subtitle_label.pack(fill="x", padx=(4, 8))
         
         self.subtitle_var = ctk.StringVar(value="id - Indonesian")
         self.subtitle_dropdown = ctk.CTkOptionMenu(self.subtitle_frame, 
             variable=self.subtitle_var, values=["id - Indonesian"], 
             width=200, height=32, fg_color=("#3a3a3a", "#2a2a2a"),
             button_color=("#3a3a3a", "#2a2a2a"), button_hover_color=("#4a4a4a", "#3a3a3a"))
-        self.subtitle_dropdown.pack(side="left")
+        self.subtitle_dropdown.pack(fill="x", padx=(4, 8))
         
         # Loading indicator for subtitle fetch
         self.subtitle_loading = ctk.CTkLabel(self.subtitle_frame, text="⏳ Loading...", 
             font=ctk.CTkFont(size=10), text_color="gray")
+        
+        # Cookies.txt upload section
+        ctk.CTkLabel(left_col, text="YouTube Cookies", font=ctk.CTkFont(size=12, weight="bold"), 
+            anchor="w").pack(fill="x", pady=(0, 5))
+        
+        cookies_frame = ctk.CTkFrame(left_col, fg_color=("#2b2b2b", "#1a1a1a"), corner_radius=8)
+        cookies_frame.pack(fill="x", pady=(0, 15))
+        
+        cookies_container = ctk.CTkFrame(cookies_frame, fg_color="transparent")
+        cookies_container.pack(fill="x", padx=8, pady=8)
+        
+        # Cookies status label
+        self.cookies_status_label = ctk.CTkLabel(cookies_container, 
+            text="🍪 No cookies.txt found", 
+            font=ctk.CTkFont(size=11), anchor="w", text_color="gray")
+        self.cookies_status_label.pack(side="left", fill="x", expand=True, padx=(4, 8))
+        
+        # Upload button
+        upload_cookies_btn = ctk.CTkButton(cookies_container, text="📁 Upload", width=80, height=36,
+            fg_color=("#3a3a3a", "#2a2a2a"), hover_color=("#4a4a4a", "#3a3a3a"),
+            font=ctk.CTkFont(size=11), command=self.upload_cookies)
+        upload_cookies_btn.pack(side="right")
+        
+        # Note: check_cookies_status() will be called after all widgets are created
         
         # Clip Configuration section
         config_frame = ctk.CTkFrame(left_col, fg_color=("#2b2b2b", "#1a1a1a"), corner_radius=10)
@@ -319,6 +357,9 @@ class YTShortClipperApp(ctk.CTk):
         browse_link.pack(pady=(0, 0))
         browse_link.bind("<Button-1>", lambda e: self.show_page("browse"))
         
+        # Check cookies status after all widgets are created
+        self.check_cookies_status()
+        
         # Right column - Video Preview
         right_col = ctk.CTkFrame(main, fg_color="transparent")
         right_col.pack(side="right", fill="both", expand=True, padx=(10, 0))
@@ -373,6 +414,49 @@ class YTShortClipperApp(ctk.CTk):
             debug_log(f"Paste error: {e}")
             # If clipboard is empty or error, do nothing
             pass
+    
+    def upload_cookies(self):
+        """Upload cookies.txt file"""
+        file_path = filedialog.askopenfilename(
+            title="Select cookies.txt file",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        
+        if file_path:
+            try:
+                # Copy file to app directory
+                import shutil
+                shutil.copy(file_path, self.cookies_path)
+                debug_log(f"Cookies uploaded: {file_path}")
+                
+                # Update status
+                self.check_cookies_status()
+                
+                # Show success message
+                messagebox.showinfo("Success", "cookies.txt uploaded successfully!")
+                
+            except Exception as e:
+                debug_log(f"Upload cookies error: {e}")
+                messagebox.showerror("Upload Failed", f"Failed to upload cookies.txt:\n{str(e)}")
+    
+    def check_cookies_status(self):
+        """Check if cookies.txt exists and update UI"""
+        if self.cookies_path.exists():
+            self.cookies_status_label.configure(
+                text="✅ cookies.txt loaded",
+                text_color=("#27ae60", "#2ecc71")  # Green
+            )
+            # Update start button state when cookies status changes
+            self.update_start_button_state()
+            return True
+        else:
+            self.cookies_status_label.configure(
+                text="🍪 No cookies.txt found",
+                text_color="gray"
+            )
+            # Update start button state when cookies status changes
+            self.update_start_button_state()
+            return False
     
     def update_caption_switch_text(self):
         """Update caption switch text based on state"""
@@ -644,15 +728,43 @@ class YTShortClipperApp(ctk.CTk):
         url = self.url_var.get().strip()
         video_id = extract_video_id(url)
         if video_id:
+            # Reset subtitle loaded flag when URL changes
+            self.subtitle_loaded = False
             self.load_thumbnail(video_id)
-            self.load_subtitles(url)  # NEW: Fetch available subtitles
+            self.load_subtitles(url)  # Fetch available subtitles
         else:
             self.current_thumbnail = None
+            self.subtitle_loaded = False
             # Recreate placeholder
             self.create_preview_placeholder()
             # Hide subtitle selector
             self.subtitle_frame.pack_forget()
-            # Disable start button when URL is invalid
+            # Disable start button when URL is invalid or cookies missing
+            self.update_start_button_state()
+    
+    def update_start_button_state(self):
+        """Update start button state based on URL and cookies validation"""
+        has_cookies = self.cookies_path.exists()
+        
+        # If no cookies, disable everything
+        if not has_cookies:
+            self.url_entry.configure(state="disabled")
+            self.paste_btn.configure(state="disabled")
+            self.start_btn.configure(state="disabled", fg_color="gray", hover_color="gray")
+            return
+        
+        # Cookies exist - enable URL input
+        self.url_entry.configure(state="normal")
+        self.paste_btn.configure(state="normal")
+        
+        # Check if URL is valid and subtitle is loaded for start button
+        url = self.url_var.get().strip()
+        video_id = extract_video_id(url)
+        
+        if video_id and self.subtitle_loaded:
+            self.start_btn.configure(state="normal", fg_color=("#1f538d", "#14375e"), 
+                                    hover_color=("#144870", "#0d2a47"))
+        else:
             self.start_btn.configure(state="disabled", fg_color="gray", hover_color="gray")
     
     def load_subtitles(self, url: str):
@@ -665,9 +777,19 @@ class YTShortClipperApp(ctk.CTk):
                 # Import here to avoid circular dependency
                 from clipper_core import AutoClipperCore
                 
-                # Get available subtitles
+                # Get available subtitles (pass cookies_path)
                 debug_log(f"Fetching subtitles for: {url}")
-                result = AutoClipperCore.get_available_subtitles(url, self.ytdlp_path)
+                debug_log(f"Cookies path: {self.cookies_path}")
+                debug_log(f"Cookies exists: {self.cookies_path.exists()}")
+                
+                cookies_str = str(self.cookies_path) if self.cookies_path.exists() else None
+                debug_log(f"Passing cookies_path: {cookies_str}")
+                
+                result = AutoClipperCore.get_available_subtitles(
+                    url, 
+                    self.ytdlp_path, 
+                    cookies_path=cookies_str
+                )
                 debug_log(f"Subtitle fetch result: {result}")
                 
                 if result.get("error"):
@@ -719,8 +841,13 @@ class YTShortClipperApp(ctk.CTk):
     def on_subtitle_error(self, error: str):
         """Handle subtitle fetch error"""
         debug_log(f"Subtitle fetch error: {error}")
+        self.subtitle_loaded = False
         # Hide subtitle selector on error
         self.subtitle_frame.pack_forget()
+        # Show error to user
+        messagebox.showerror("Subtitle Error", f"Failed to fetch subtitles:\n\n{error}")
+        # Update button state
+        self.update_start_button_state()
     
     def show_subtitle_selector(self, subtitles: list):
         """Show subtitle selector with available options"""
@@ -743,25 +870,54 @@ class YTShortClipperApp(ctk.CTk):
         
         # Show subtitle frame
         self.subtitle_frame.pack(fill="x", padx=8, pady=(0, 8))
+        
+        # Mark subtitles as loaded
+        self.subtitle_loaded = True
+        
+        # Update start button state (subtitles loaded successfully)
+        self.update_start_button_state()
     
     def load_thumbnail(self, video_id: str):
         def fetch():
             try:
+                import ssl
+                import certifi
+                
+                # Try with certifi first, fallback to unverified SSL
+                ssl_context = None
+                try:
+                    ssl_context = ssl.create_default_context(cafile=certifi.where())
+                except Exception:
+                    pass
+                
+                if ssl_context is None:
+                    # Fallback to unverified SSL (for PyInstaller builds)
+                    ssl_context = ssl.create_default_context()
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+                
+                img = None
                 for quality in ["maxresdefault", "hqdefault", "mqdefault"]:
                     try:
                         url = f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
-                        with urllib.request.urlopen(url, timeout=5) as r:
+                        with urllib.request.urlopen(url, timeout=5, context=ssl_context) as r:
                             data = r.read()
                         img = Image.open(io.BytesIO(data))
                         if img.size[0] > 120:
                             break
-                    except:
+                    except Exception as e:
+                        debug_log(f"Thumbnail fetch error ({quality}): {e}")
                         continue
+                
+                if img is None:
+                    raise Exception("All thumbnail qualities failed")
+                    
                 # Resize to fit preview area in landscape (16:9 aspect ratio)
                 # Max width 380px to fit in the frame with padding
                 img.thumbnail((380, 214), Image.Resampling.LANCZOS)
                 self.after(0, lambda: self.show_thumbnail(img))
-            except:
+            except Exception as e:
+                debug_log(f"Thumbnail load failed: {e}")
                 self.after(0, lambda: self.on_thumbnail_error())
         
         # Clear image reference properly before loading new one
@@ -812,14 +968,12 @@ class YTShortClipperApp(ctk.CTk):
             self.thumb_label = ctk.CTkLabel(self.thumb_frame, image=ctk_img, text="")
             self.thumb_label.place(relx=0.5, rely=0.5, anchor="center")
             
-            # Enable start button when thumbnail loads successfully
-            self.start_btn.configure(state="normal", fg_color=("#3B8ED0", "#1F6AA5"), 
-                hover_color=("#36719F", "#144870"))
+            # Update start button state (checks both URL and cookies)
+            self.update_start_button_state()
         except Exception as e:
             debug_log(f"Error showing thumbnail: {e}")
-            # If thumbnail fails, just enable the button anyway
-            self.start_btn.configure(state="normal", fg_color=("#3B8ED0", "#1F6AA5"), 
-                hover_color=("#36719F", "#144870"))
+            # If thumbnail fails, still update button state
+            self.update_start_button_state()
 
     def start_processing(self):
         # Disable button during validation
@@ -1048,8 +1202,8 @@ class YTShortClipperApp(ctk.CTk):
                 watermark_settings=watermark_settings,
                 face_tracking_mode=face_tracking_mode,
                 mediapipe_settings=mediapipe_settings,
-                ai_providers=self.config.get("ai_providers"),  # NEW: Pass multi-provider config
-                subtitle_language=subtitle_lang,  # NEW: Pass selected subtitle language
+                ai_providers=self.config.get("ai_providers"),
+                subtitle_language=subtitle_lang,
                 log_callback=log_with_debug,
                 progress_callback=lambda s, p: self.after(0, lambda: self.update_progress(s, p)),
                 token_callback=lambda a, b, c, d: self.after(0, lambda: self.update_tokens(a, b, c, d)),

@@ -318,3 +318,5 @@ video_info.json
 # (uncomment if you want to ignore these)
 # **/data.json
 .kiro
+.trae
+cookies.txt

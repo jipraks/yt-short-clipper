@@ -176,7 +176,15 @@ class SettingsPage(ctk.CTkFrame):
     
     def load_yt_models(self):
         """Load available models from YouTube Title Maker API"""
-        url = self.yt_url_entry.get().strip() or "https://api.openai.com/v1"
+        # Get URL based on current provider type
+        provider_type = self.provider_type_var.get()
+        if provider_type == "ytclip":
+            url = "https://ai-api.ytclip.org/v1"
+        elif provider_type == "openai":
+            url = "https://api.openai.com/v1"
+        else:
+            url = self.yt_url_entry.get().strip() or "https://api.openai.com/v1"
+        
         api_key = self.yt_key_entry.get().strip()
         
         if not api_key:
@@ -209,9 +217,10 @@ class SettingsPage(ctk.CTkFrame):
                 if not chat_models:
                     chat_models = all_models  # Fallback to all models if filtering removes everything
                 
-                self.after(0, lambda: self._on_yt_models_loaded(chat_models))
+                self.after(0, lambda m=chat_models: self._on_yt_models_loaded(m))
             except Exception as e:
-                self.after(0, lambda: self._on_yt_models_load_error(str(e)))
+                error_msg = str(e)
+                self.after(0, lambda err=error_msg: self._on_yt_models_load_error(err))
         
         threading.Thread(target=do_load, daemon=True).start()
     
@@ -239,7 +248,15 @@ class SettingsPage(ctk.CTkFrame):
     
     def validate_yt_config(self):
         """Validate YouTube Title Maker configuration"""
-        url = self.yt_url_entry.get().strip() or "https://api.openai.com/v1"
+        # Get URL based on current provider type
+        provider_type = self.provider_type_var.get()
+        if provider_type == "ytclip":
+            url = "https://ai-api.ytclip.org/v1"
+        elif provider_type == "openai":
+            url = "https://api.openai.com/v1"
+        else:
+            url = self.yt_url_entry.get().strip() or "https://api.openai.com/v1"
+        
         api_key = self.yt_key_entry.get().strip()
         model = self.yt_model_var.get().strip()
         
@@ -277,10 +294,8 @@ class SettingsPage(ctk.CTkFrame):
                     
                     # Check if model is available
                     if model not in available_models:
-                        self.after(0, lambda: self._on_yt_validate_error(
-                            f"Model '{model}' not found in available models.\n\n" +
-                            f"Available models: {', '.join(available_models[:5])}...", 
-                            validate_btn))
+                        err_msg = f"Model '{model}' not found in available models.\n\nAvailable models: {', '.join(available_models[:5])}..."
+                        self.after(0, lambda e=err_msg, b=validate_btn: self._on_yt_validate_error(e, b))
                         return
                 except Exception as list_error:
                     # If listing models fails, the API key might still be valid
@@ -288,10 +303,10 @@ class SettingsPage(ctk.CTkFrame):
                     # Just verify the API key is not empty and continue
                     pass
                 
-                self.after(0, lambda: self._on_yt_validate_success(model, url, validate_btn))
+                self.after(0, lambda m=model, u=url, b=validate_btn: self._on_yt_validate_success(m, u, b))
             except Exception as e:
                 error_msg = str(e)
-                self.after(0, lambda: self._on_yt_validate_error(error_msg, validate_btn))
+                self.after(0, lambda err=error_msg, b=validate_btn: self._on_yt_validate_error(err, b))
         
         threading.Thread(target=do_validate, daemon=True).start()
     
@@ -320,7 +335,15 @@ class SettingsPage(ctk.CTkFrame):
     
     def load_hf_models(self):
         """Load available models from Highlight Finder API"""
-        url = self.hf_url_entry.get().strip() or "https://api.openai.com/v1"
+        # Get URL based on current provider type
+        provider_type = self.provider_type_var.get()
+        if provider_type == "ytclip":
+            url = "https://ai-api.ytclip.org/v1"
+        elif provider_type == "openai":
+            url = "https://api.openai.com/v1"
+        else:
+            url = self.hf_url_entry.get().strip() or "https://api.openai.com/v1"
+        
         api_key = self.hf_key_entry.get().strip()
         
         if not api_key:
@@ -353,9 +376,10 @@ class SettingsPage(ctk.CTkFrame):
                 if not chat_models:
                     chat_models = all_models  # Fallback to all models if filtering removes everything
                 
-                self.after(0, lambda: self._on_models_loaded(chat_models))
+                self.after(0, lambda m=chat_models: self._on_models_loaded(m))
             except Exception as e:
-                self.after(0, lambda: self._on_models_load_error(str(e)))
+                error_msg = str(e)
+                self.after(0, lambda err=error_msg: self._on_models_load_error(err))
         
         threading.Thread(target=do_load, daemon=True).start()
     
@@ -383,7 +407,15 @@ class SettingsPage(ctk.CTkFrame):
     
     def validate_hf_config(self):
         """Validate Highlight Finder configuration"""
-        url = self.hf_url_entry.get().strip() or "https://api.openai.com/v1"
+        # Get URL based on current provider type
+        provider_type = self.provider_type_var.get()
+        if provider_type == "ytclip":
+            url = "https://ai-api.ytclip.org/v1"
+        elif provider_type == "openai":
+            url = "https://api.openai.com/v1"
+        else:
+            url = self.hf_url_entry.get().strip() or "https://api.openai.com/v1"
+        
         api_key = self.hf_key_entry.get().strip()
         model = self.hf_model_var.get().strip()
         
@@ -421,10 +453,8 @@ class SettingsPage(ctk.CTkFrame):
                     
                     # Check if model is available
                     if model not in available_models:
-                        self.after(0, lambda: self._on_hf_validate_error(
-                            f"Model '{model}' not found in available models.\n\n" +
-                            f"Available models: {', '.join(available_models[:5])}...", 
-                            validate_btn))
+                        err_msg = f"Model '{model}' not found in available models.\n\nAvailable models: {', '.join(available_models[:5])}..."
+                        self.after(0, lambda e=err_msg, b=validate_btn: self._on_hf_validate_error(e, b))
                         return
                 except Exception as list_error:
                     # If listing models fails, the API key might still be valid
@@ -432,10 +462,10 @@ class SettingsPage(ctk.CTkFrame):
                     # Just verify the API key is not empty and continue
                     pass
                 
-                self.after(0, lambda: self._on_hf_validate_success(model, url, validate_btn))
+                self.after(0, lambda m=model, u=url, b=validate_btn: self._on_hf_validate_success(m, u, b))
             except Exception as e:
                 error_msg = str(e)
-                self.after(0, lambda: self._on_hf_validate_error(error_msg, validate_btn))
+                self.after(0, lambda err=error_msg, b=validate_btn: self._on_hf_validate_error(err, b))
         
         threading.Thread(target=do_validate, daemon=True).start()
     
@@ -455,7 +485,15 @@ class SettingsPage(ctk.CTkFrame):
     
     def validate_provider_simple(self, provider_key, url_entry, key_entry, model_entry):
         """Validate provider configuration"""
-        url = url_entry.get().strip() or "https://api.openai.com/v1"
+        # Get URL based on current provider type
+        provider_type = self.provider_type_var.get()
+        if provider_type == "ytclip":
+            url = "https://ai-api.ytclip.org/v1"
+        elif provider_type == "openai":
+            url = "https://api.openai.com/v1"
+        else:
+            url = url_entry.get().strip() or "https://api.openai.com/v1"
+        
         api_key = key_entry.get().strip()
         model = model_entry.get().strip()
         
@@ -1025,9 +1063,10 @@ class SettingsPage(ctk.CTkFrame):
                 gpu_info = detector.detect_gpu()
                 recommendation = detector.get_recommended_encoder()
                 
-                self.after(0, lambda: self._on_gpu_detected(gpu_info, recommendation))
+                self.after(0, lambda g=gpu_info, r=recommendation: self._on_gpu_detected(g, r))
             except Exception as e:
-                self.after(0, lambda: self._on_gpu_detect_error(str(e)))
+                error_msg = str(e)
+                self.after(0, lambda err=error_msg: self._on_gpu_detect_error(err))
         
         threading.Thread(target=do_detect, daemon=True).start()
     
@@ -1719,16 +1758,18 @@ Stay tuned for updates! 🎵"""
             try:
                 self.youtube_uploader.authenticate(callback=self.on_youtube_connected)
             except Exception as e:
-                self.after(0, lambda: self.on_youtube_error(str(e)))
+                error_msg = str(e)
+                self.after(0, lambda err=error_msg: self.on_youtube_error(err))
         
         threading.Thread(target=do_connect, daemon=True).start()
     
     def on_youtube_connected(self, success, data):
         """Callback when YouTube connection completes"""
         if success:
-            self.after(0, lambda: self._update_youtube_connected(data))
+            self.after(0, lambda d=data: self._update_youtube_connected(d))
         else:
-            self.after(0, lambda: self.on_youtube_error(str(data)))
+            error_msg = str(data)
+            self.after(0, lambda err=error_msg: self.on_youtube_error(err))
     
     def _update_youtube_connected(self, channel):
         """Update UI after YouTube connection"""
@@ -1818,7 +1859,7 @@ Stay tuned for updates! 🎵"""
                 
                 if response.status_code == 200:
                     data = response.json()
-                    self.after(0, lambda: self._display_accounts_only(data))
+                    self.after(0, lambda d=data: self._display_accounts_only(d))
                     
             except Exception:
                 # Silently fail - don't show error on auto-load
@@ -1883,7 +1924,7 @@ Stay tuned for updates! 🎵"""
                 
                 if response.status_code == 200:
                     data = response.json()
-                    self.after(0, lambda: self._on_repliz_validate_success(data))
+                    self.after(0, lambda d=data: self._on_repliz_validate_success(d))
                 else:
                     error_msg = f"HTTP {response.status_code}"
                     try:
@@ -1893,14 +1934,16 @@ Stay tuned for updates! 🎵"""
                         if response.status_code == 401:
                             error_msg = "invalid authorization header"
                         pass
-                    self.after(0, lambda: self._on_repliz_validate_error(error_msg))
+                    err = error_msg
+                    self.after(0, lambda e=err: self._on_repliz_validate_error(e))
                     
             except requests.exceptions.Timeout:
                 self.after(0, lambda: self._on_repliz_validate_error("Request timeout"))
             except requests.exceptions.ConnectionError:
                 self.after(0, lambda: self._on_repliz_validate_error("Connection error"))
             except Exception as e:
-                self.after(0, lambda: self._on_repliz_validate_error(str(e)))
+                error_msg = str(e)
+                self.after(0, lambda err=error_msg: self._on_repliz_validate_error(err))
         
         threading.Thread(target=do_validate, daemon=True).start()
     
@@ -2055,14 +2098,14 @@ Stay tuned for updates! 🎵"""
                     ctk_img = CTkImage(light_image=output, dark_image=output, size=(80, 80))
                     
                     # Update UI in main thread
-                    self.after(0, lambda: self._display_profile_picture(parent, ctk_img))
+                    self.after(0, lambda p=parent, img=ctk_img: self._display_profile_picture(p, img))
                 else:
                     # Fallback to icon
-                    self.after(0, lambda: self._display_fallback_icon(parent, fallback_icon))
+                    self.after(0, lambda p=parent, icon=fallback_icon: self._display_fallback_icon(p, icon))
                     
             except Exception as e:
                 # Fallback to icon on error
-                self.after(0, lambda: self._display_fallback_icon(parent, fallback_icon))
+                self.after(0, lambda p=parent, icon=fallback_icon: self._display_fallback_icon(p, icon))
         
         # Show loading placeholder
         loading_label = ctk.CTkLabel(parent, text="⏳", 
@@ -2316,7 +2359,7 @@ and YouTube Shorts."""
                 client = OpenAI(api_key=api_key, base_url=base_url)
                 models = sorted([m.id for m in client.models.list().data])
                 self.models_list = models
-                self.after(0, lambda: self._on_success(models))
+                self.after(0, lambda m=models: self._on_success(m))
             except:
                 self.after(0, self._on_error)
         threading.Thread(target=do_validate, daemon=True).start()

@@ -15,18 +15,43 @@ import time
 from pathlib import Path
 from datetime import datetime
 from openai import OpenAI
+from utils.logger import debug_log
+from utils.helpers import get_deno_path, get_ffmpeg_path, is_ytdlp_module_available
+
+# Setup Deno and FFmpeg in PATH before importing yt-dlp
+_deno_path = get_deno_path()
+_ffmpeg_path = get_ffmpeg_path()
+
+if _deno_path and Path(_deno_path).exists():
+    _deno_dir = str(Path(_deno_path).parent)
+    if "PATH" in os.environ:
+        if _deno_dir not in os.environ["PATH"]:
+            os.environ["PATH"] = f"{_deno_dir}{os.pathsep}{os.environ['PATH']}"
+    else:
+        os.environ["PATH"] = _deno_dir
+    debug_log(f"Deno added to PATH: {_deno_dir}")
+
+if _ffmpeg_path and Path(_ffmpeg_path).exists():
+    _ffmpeg_dir = str(Path(_ffmpeg_path).parent)
+    if "PATH" in os.environ:
+        if _ffmpeg_dir not in os.environ["PATH"]:
+            os.environ["PATH"] = f"{_ffmpeg_dir}{os.pathsep}{os.environ['PATH']}"
+    else:
+        os.environ["PATH"] = _ffmpeg_dir
+    debug_log(f"FFmpeg added to PATH: {_ffmpeg_dir}")
+
+# Import yt-dlp module if available
+try:
+    import yt_dlp
+    YTDLP_MODULE_AVAILABLE = True
+except ImportError:
+    YTDLP_MODULE_AVAILABLE = False
 
 try:
     import google.generativeai as genai
     GOOGLE_GENAI_AVAILABLE = True
 except ImportError:
     GOOGLE_GENAI_AVAILABLE = False
-
-try:
-    import deno
-    DENO_AVAILABLE = True
-except ImportError:
-    DENO_AVAILABLE = False
 
 # Hide console window on Windows
 SUBPROCESS_FLAGS = 0
@@ -50,8 +75,8 @@ class AutoClipperCore:
         watermark_settings: dict = None,
         face_tracking_mode: str = "opencv",
         mediapipe_settings: dict = None,
-        ai_providers: dict = None,  # NEW: Multi-provider config
-        subtitle_language: str = "id",  # NEW: Configurable subtitle language
+        ai_providers: dict = None,
+        subtitle_language: str = "id",
         log_callback=None,
         progress_callback=None,
         token_callback=None,
@@ -280,9 +305,156 @@ Transcript:
         self.log(f"\n✅ Created {total_clips} clips in: {self.output_dir}")
     
     def download_video(self, url: str) -> tuple:
-        """Download video and subtitle with progress"""
+        """Download video and subtitle with progress using yt-dlp module or executable"""
         self.log("[1/4] Downloading video & subtitle...")
         
+        # Check if using yt-dlp module
+        use_module = YTDLP_MODULE_AVAILABLE and self.ytdlp_path == "yt_dlp_module"
+        
+        if use_module:
+            return self._download_video_module(url)
+        else:
+            return self._download_video_subprocess(url)
+    
+    def _download_video_module(self, url: str) -> tuple:
+        """Download video using yt-dlp Python module API"""
+        self.log(f"  Using yt-dlp module v{yt_dlp.version.__version__}")
+        
+        video_info = {}
+        
+        # Get FFmpeg and Deno paths
+        ffmpeg_path = get_ffmpeg_path()
+        deno_path = get_deno_path()
+        
+        self.log(f"  FFmpeg path: {ffmpeg_path}")
+        self.log(f"  Deno path: {deno_path}")
+        
+        # Setup environment with Deno in PATH
+        if deno_path and Path(deno_path).exists():
+            deno_dir = str(Path(deno_path).parent)
+            if "PATH" in os.environ:
+                os.environ["PATH"] = f"{deno_dir}{os.pathsep}{os.environ['PATH']}"
+            else:
+                os.environ["PATH"] = deno_dir
+            self.log(f"  Deno added to PATH: {deno_dir}")
+        else:
+            self.log(f"  WARNING: Deno not found!")
+        
+        # Progress hook for yt-dlp
+        def progress_hook(d):
+            if self.is_cancelled():
+                raise Exception("Cancelled by user")
+            
+            if d['status'] == 'downloading':
+                percent_str = d.get('_percent_str', '0%').strip()
+                # Extract numeric percent
+                match = re.search(r'(\d+\.?\d*)%', percent_str)
+                if match:
+                    percent = float(match.group(1))
+                    self.set_progress(f"Downloading video... {percent:.1f}%", 0.05 + percent / 100 * 0.2)
+            elif d['status'] == 'finished':
+                self.log("  Download finished, processing...")
+                self.set_progress("Processing downloaded file...", 0.25)
+        
+        # High-quality format selector
+        format_selector = "bestvideo[height>=720][height<=2160]+bestaudio/best[height>=720][height<=2160]/bestvideo+bestaudio/best"
+        
+        # Base yt-dlp options
+        ydl_opts = {
+            'format': format_selector,
+            'format_sort': ['res', 'br'],
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': [self.subtitle_language],
+            'subtitlesformat': 'srt',
+            'merge_output_format': 'mp4',
+            'outtmpl': str(self.temp_dir / 'source.%(ext)s'),
+            'progress_hooks': [progress_hook],
+            'quiet': True,
+            'no_warnings': False,
+            'extract_flat': False,
+            'postprocessors': [{
+                'key': 'FFmpegSubtitlesConvertor',
+                'format': 'srt',
+            }],
+        }
+        
+        # Add Deno JS runtime if available
+        if deno_path and Path(deno_path).exists():
+            ydl_opts['js_runtimes'] = {'deno': {'path': deno_path}}
+            ydl_opts['remote_components'] = ['ejs:github']
+            self.log(f"  JS runtime: deno at {deno_path}")
+        else:
+            self.log(f"  WARNING: Deno not found - some formats may be missing!")
+        
+        # Add FFmpeg location if available
+        if ffmpeg_path and Path(ffmpeg_path).exists():
+            ydl_opts['ffmpeg_location'] = str(Path(ffmpeg_path).parent)
+            self.log(f"  FFmpeg location: {ydl_opts['ffmpeg_location']}")
+        else:
+            self.log(f"  WARNING: FFmpeg not found!")
+        
+        # Add cookies (required)
+        from utils.helpers import get_app_dir
+        app_dir = get_app_dir()
+        cookies_locations = [
+            Path("cookies.txt"),  # Current directory
+            app_dir / "cookies.txt",  # App directory
+        ]
+        
+        cookies_path = None
+        for loc in cookies_locations:
+            self.log(f"  Checking cookies at: {loc} - exists: {loc.exists()}")
+            if loc.exists():
+                cookies_path = loc
+                break
+        
+        if not cookies_path:
+            raise Exception("cookies.txt not found!\n\nPlease upload cookies.txt file from home page.")
+        
+        ydl_opts['cookiefile'] = str(cookies_path)
+        self.log(f"  Using cookies from: {cookies_path}")
+        
+        # Single download attempt (no browser cookies fallback)
+        last_error = None
+        try:
+            self.log(f"  Starting download...")
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # First get video info
+                self.log("  Fetching video info...")
+                info = ydl.extract_info(url, download=False)
+                
+                if info:
+                    video_info = {
+                        "title": info.get("title", ""),
+                        "description": (info.get("description", "") or "")[:2000],
+                        "channel": info.get("channel", ""),
+                    }
+                    self.log(f"  Title: {video_info['title'][:50]}...")
+                
+                # Now download
+                self.log(f"  Downloading video with {self.subtitle_language} subtitle...")
+                ydl.download([url])
+            
+            self.log(f"  ✓ Download successful!")
+                
+        except Exception as e:
+            last_error = str(e)
+            self.log(f"  ✗ Failed: {last_error[:100]}")
+            raise Exception(f"Download failed!\n\n{last_error}")
+        
+        video_path = self.temp_dir / "source.mp4"
+        srt_path = self.temp_dir / f"source.{self.subtitle_language}.srt"
+        
+        if not srt_path.exists():
+            srt_path = None
+            self.log(f"  Warning: No {self.subtitle_language} subtitle found")
+        
+        return str(video_path), str(srt_path) if srt_path else None, video_info
+    
+    def _download_video_subprocess(self, url: str) -> tuple:
+        """Download video using yt-dlp subprocess (fallback)"""
         # Validate yt-dlp is available
         try:
             version_check = subprocess.run(
@@ -302,9 +474,25 @@ Transcript:
         except Exception as e:
             raise Exception(f"Failed to validate yt-dlp: {str(e)}")
         
+        base_args = []
+        try:
+            help_result = subprocess.run(
+                [self.ytdlp_path, "--help"],
+                capture_output=True,
+                text=True,
+                creationflags=SUBPROCESS_FLAGS,
+                timeout=5
+            )
+            if help_result.returncode == 0:
+                help_text = help_result.stdout
+                if "--no-impersonate" in help_text:
+                    base_args.append("--no-impersonate")
+        except Exception:
+            pass
+        
         # Get video metadata
         self.log("  Fetching video info...")
-        meta_cmd = [self.ytdlp_path, "--dump-json", "--no-download", url]
+        meta_cmd = [self.ytdlp_path, "--dump-json", "--no-download", *base_args, url]
         
         result = subprocess.run(
             meta_cmd, 
@@ -345,8 +533,8 @@ Transcript:
             }
         ]
         
-        # High-quality format selector (prioritize 1080p separate video+audio)
-        format_selector = "bestvideo[height<=1080][ext=mp4]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+        # High-quality format selector (prioritize 720p+ with fallback)
+        format_selector = "bestvideo[height>=720][height<=2160]+bestaudio/best[height>=720][height<=2160]/bestvideo+bestaudio/best"
         
         last_error = None
         for strategy in download_strategies:
@@ -358,6 +546,8 @@ Transcript:
             cmd = [
                 self.ytdlp_path,
                 "-f", format_selector,
+                "--format-sort", "res,br",
+                *base_args,
                 *strategy["extra_args"],
                 "--write-sub", "--write-auto-sub",
                 "--sub-lang", self.subtitle_language,
@@ -440,10 +630,15 @@ Transcript:
             self.log(f"  Warning: No {self.subtitle_language} subtitle found")
         
         return str(video_path), str(srt_path) if srt_path else None, video_info
-    
+
     @staticmethod
-    def get_available_subtitles(url: str, ytdlp_path: str = "yt-dlp") -> dict:
+    def get_available_subtitles(url: str, ytdlp_path: str = "yt-dlp", cookies_path: str = None) -> dict:
         """Get list of available subtitles for a YouTube video
+        
+        Args:
+            url: YouTube video URL
+            ytdlp_path: Path to yt-dlp executable or "yt_dlp_module" for module
+            cookies_path: Path to cookies.txt file (required)
         
         Returns:
             dict with keys:
@@ -451,20 +646,217 @@ Transcript:
                 - 'automatic_captions': list of auto-generated subtitle languages
                 - 'error': error message if failed
         """
+        # Language name mapping (common ones)
+        lang_names = {
+            "en": "English",
+            "id": "Indonesian",
+            "es": "Spanish",
+            "fr": "French",
+            "de": "German",
+            "pt": "Portuguese",
+            "ru": "Russian",
+            "ja": "Japanese",
+            "ko": "Korean",
+            "zh": "Chinese",
+            "ar": "Arabic",
+            "hi": "Hindi",
+            "it": "Italian",
+            "nl": "Dutch",
+            "pl": "Polish",
+            "tr": "Turkish",
+            "vi": "Vietnamese",
+            "th": "Thai",
+        }
+        
+        # Check if using yt-dlp module
+        use_module = YTDLP_MODULE_AVAILABLE and ytdlp_path == "yt_dlp_module"
+        
+        if use_module:
+            return AutoClipperCore._get_subtitles_module(url, cookies_path, lang_names)
+        else:
+            return AutoClipperCore._get_subtitles_subprocess(url, ytdlp_path, cookies_path, lang_names)
+    
+    @staticmethod
+    def _get_subtitles_module(url: str, cookies_path: str, lang_names: dict) -> dict:
+        """Get subtitles using yt-dlp Python module API"""
         try:
+            # Check if cookies.txt exists
+            if not cookies_path or not Path(cookies_path).exists():
+                return {
+                    "error": "cookies.txt not found. Please upload cookies.txt file.",
+                    "subtitles": [],
+                    "automatic_captions": []
+                }
+            
+            # Validate cookies file has required YouTube auth cookies
+            required_cookies = ['SID', 'HSID', 'SSID', 'APISID', 'SAPISID', 'LOGIN_INFO']
+            found_cookies = []
+            try:
+                with open(cookies_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    for cookie in required_cookies:
+                        # Check for cookie name in the file (tab-separated format)
+                        if f"\t{cookie}\t" in content or content.endswith(f"\t{cookie}"):
+                            found_cookies.append(cookie)
+                
+                if not found_cookies:
+                    debug_log(f"Cookies file missing required auth cookies. Found: {found_cookies}")
+                    return {
+                        "error": "Invalid cookies.txt - missing YouTube authentication cookies.\n\n"
+                                 "Please export fresh cookies from your browser while logged into YouTube.\n\n"
+                                 "Required cookies: SID, HSID, SSID, APISID, SAPISID, LOGIN_INFO\n\n"
+                                 "Use a browser extension like 'Get cookies.txt LOCALLY' to export.",
+                        "subtitles": [],
+                        "automatic_captions": []
+                    }
+                debug_log(f"Found auth cookies: {found_cookies}")
+            except Exception as e:
+                debug_log(f"Error reading cookies file: {e}")
+            
+            debug_log(f"Using yt-dlp module v{yt_dlp.version.__version__}")
+            debug_log(f"Cookies path: {cookies_path} (exists: {Path(cookies_path).exists()})")
+            
+            # Setup Deno in PATH if available
+            deno_path = get_deno_path()
+            ffmpeg_path = get_ffmpeg_path()
+            
+            if deno_path and Path(deno_path).exists():
+                deno_dir = str(Path(deno_path).parent)
+                if "PATH" in os.environ:
+                    if deno_dir not in os.environ["PATH"]:
+                        os.environ["PATH"] = f"{deno_dir}{os.pathsep}{os.environ['PATH']}"
+                else:
+                    os.environ["PATH"] = deno_dir
+                debug_log(f"Deno path added: {deno_dir}")
+            
+            # yt-dlp options for fetching info only
+            # NOTE: Don't use player_client=android with cookies - it bypasses cookie auth
+            ydl_opts = {
+                'skip_download': True,
+                'quiet': False,  # Show warnings for debugging
+                'no_warnings': False,
+                'cookiefile': str(cookies_path),  # Ensure string path
+            }
+            
+            # Add Deno JS runtime if available
+            if deno_path and Path(deno_path).exists():
+                ydl_opts['js_runtimes'] = {'deno': {'path': deno_path}}
+                ydl_opts['remote_components'] = ['ejs:github']
+                debug_log(f"JS runtime: deno at {deno_path}")
+            
+            # Add FFmpeg location if available
+            if ffmpeg_path and Path(ffmpeg_path).exists():
+                ydl_opts['ffmpeg_location'] = str(Path(ffmpeg_path).parent)
+                debug_log(f"FFmpeg location: {ydl_opts['ffmpeg_location']}")
+            
+            debug_log(f"yt-dlp opts: cookiefile={ydl_opts['cookiefile']}")
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                video_data = ydl.extract_info(url, download=False)
+            
+            if not video_data:
+                return {"error": "Failed to fetch video info", "subtitles": [], "automatic_captions": []}
+            
+            # Extract subtitles
+            subtitles = []
+            auto_captions = []
+            
+            # Get manual subtitles
+            if "subtitles" in video_data and video_data["subtitles"]:
+                for lang_code in video_data["subtitles"].keys():
+                    lang_name = lang_names.get(lang_code, lang_code.upper())
+                    subtitles.append({"code": lang_code, "name": lang_name})
+            
+            # Get automatic captions
+            if "automatic_captions" in video_data and video_data["automatic_captions"]:
+                for lang_code in video_data["automatic_captions"].keys():
+                    lang_name = lang_names.get(lang_code, lang_code.upper())
+                    auto_captions.append({"code": lang_code, "name": lang_name})
+            
+            return {
+                "subtitles": subtitles,
+                "automatic_captions": auto_captions,
+                "error": None
+            }
+            
+        except Exception as e:
+            debug_log(f"yt-dlp module error: {e}")
+            return {"error": str(e), "subtitles": [], "automatic_captions": []}
+    
+    @staticmethod
+    def _get_subtitles_subprocess(url: str, ytdlp_path: str, cookies_path: str, lang_names: dict) -> dict:
+        """Get subtitles using yt-dlp subprocess (fallback)"""
+        try:
+            # Check if cookies.txt exists
+            if not cookies_path or not Path(cookies_path).exists():
+                return {
+                    "error": "cookies.txt not found. Please upload cookies.txt file.",
+                    "subtitles": [],
+                    "automatic_captions": []
+                }
+            
+            # Setup environment with Deno path if available
+            env = os.environ.copy()
+            deno_path = get_deno_path()
+            if deno_path:
+                deno_dir = str(Path(deno_path).parent)
+                if "PATH" in env:
+                    env["PATH"] = f"{deno_dir}{os.pathsep}{env['PATH']}"
+                else:
+                    env["PATH"] = deno_dir
+                debug_log(f"Deno found at: {deno_path}")
+            else:
+                debug_log("Deno not found - remote-components may not work")
+            
             # Use --dump-json to get structured data
-            cmd = [ytdlp_path, "--dump-json", "--skip-download", url]
+            # NOTE: Don't use player_client=android with cookies - it bypasses cookie auth
+            cmd = [ytdlp_path, "--dump-json", "--skip-download", 
+                   "--cookies", cookies_path]
+            
+            # Check for remote-components support (requires Deno)
+            try:
+                help_result = subprocess.run(
+                    [ytdlp_path, "--help"],
+                    capture_output=True,
+                    text=True,
+                    creationflags=SUBPROCESS_FLAGS,
+                    timeout=5
+                )
+                if help_result.returncode == 0:
+                    help_text = help_result.stdout
+                    
+                    # Add remote-components if supported AND Deno is available
+                    if "--remote-components" in help_text and deno_path:
+                        cmd.extend(["--remote-components", "ejs:github"])
+                        debug_log("Added --remote-components ejs:github")
+                    
+                    # Add no-impersonate if supported
+                    if "--no-impersonate" in help_text:
+                        cmd.append("--no-impersonate")
+                        debug_log("Added --no-impersonate flag")
+            except Exception as e:
+                debug_log(f"Error checking yt-dlp features: {e}")
+            
+            # Add URL at the end
+            cmd.append(url)
+            
+            # Log command for debugging
+            debug_log(f"Running command: {' '.join(cmd)}")
             
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 creationflags=SUBPROCESS_FLAGS,
+                env=env,  # Use modified environment with Deno path
                 timeout=30  # Add timeout to prevent hanging
             )
             
             if result.returncode != 0:
-                return {"error": "Failed to fetch video info", "subtitles": [], "automatic_captions": []}
+                # Log stderr for debugging
+                error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+                debug_log(f"yt-dlp stderr: {error_msg}")
+                return {"error": f"Failed to fetch video info: {error_msg[:100]}", "subtitles": [], "automatic_captions": []}
             
             # Parse JSON output
             video_data = json.loads(result.stdout)
@@ -472,28 +864,6 @@ Transcript:
             # Extract subtitles
             subtitles = []
             auto_captions = []
-            
-            # Language name mapping (common ones)
-            lang_names = {
-                "en": "English",
-                "id": "Indonesian",
-                "es": "Spanish",
-                "fr": "French",
-                "de": "German",
-                "pt": "Portuguese",
-                "ru": "Russian",
-                "ja": "Japanese",
-                "ko": "Korean",
-                "zh": "Chinese",
-                "ar": "Arabic",
-                "hi": "Hindi",
-                "it": "Italian",
-                "nl": "Dutch",
-                "pl": "Polish",
-                "tr": "Turkish",
-                "vi": "Vietnamese",
-                "th": "Thai",
-            }
             
             # Get manual subtitles
             if "subtitles" in video_data and video_data["subtitles"]:

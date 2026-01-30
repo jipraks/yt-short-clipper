@@ -1,0 +1,23 @@
+:root {
+  --bg: #0a0a0a;
+  --bg-2: #0f0f0f;
+  --card: rgba(20, 20, 20, 0.7);
+  --stroke: rgba(255, 255, 255, 0.08);
+  --text: #eaeaea;
+  --muted: #a3a3a3;
+  --brand: #3B8ED0;
+  --brand-2: #1F6AA5;
+  --accent: #24d1ff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Inter", system-ui, sans-serif;
+  background: radial-gradient(1200px 500px at 20% -20%, rgba(36, 209, 255, 0.15), transparent 60%),
+              radial-gradient(900px 400px at 90% 0%, rgba(59, 142, 208, 0.25), transparent 55%),
+              var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}

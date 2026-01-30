@@ -1,0 +1,56 @@
+.shell {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 26px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-icon {
+  width: 46px;
+  height: 46px;
+  filter: drop-shadow(0 0 14px rgba(36, 209, 255, 0.35));
+}
+
+.brand-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.brand-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.nav { display: flex; gap: 10px; }
+
+.main { display: grid; gap: 20px; }
+
+.view { display: none; }
+.view.active { display: block; }
+
+@media (max-width: 860px) {
+  .input-row { grid-template-columns: 1fr; }
+  .grid { grid-template-columns: 1fr 1fr; }
+  .ai-grid { grid-template-columns: 1fr; }
+  .provider-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .grid { grid-template-columns: 1fr; }
+  .brand-sub { display: none; }
+}

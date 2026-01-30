@@ -8,7 +8,6 @@ mediapipe>=0.10.0
 requests>=2.31.0
 yt-dlp>=2024.0.0
 google-generativeai>=0.7.0
-deno>=2.0.0
 curl-cffi>=0.14.0
 
 # YouTube Upload
