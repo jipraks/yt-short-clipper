@@ -23,11 +23,30 @@ def get_bundle_dir():
 
 
 def get_ffmpeg_path():
-    """Get FFmpeg executable path"""
-    if getattr(sys, 'frozen', False):
-        bundled = get_app_dir() / "ffmpeg" / "ffmpeg.exe"
-        if bundled.exists():
-            return str(bundled)
+    """Get FFmpeg executable path
+    
+    Checks in order:
+    1. Bundled ffmpeg in app_dir/ffmpeg/ folder (downloaded via Library page)
+    2. ffmpeg in system PATH
+    3. Default "ffmpeg" command
+    """
+    app_dir = get_app_dir()
+    
+    # Check bundled ffmpeg (works for both frozen and development)
+    if sys.platform.startswith('win'):
+        bundled = app_dir / "ffmpeg" / "ffmpeg.exe"
+    else:
+        bundled = app_dir / "ffmpeg" / "ffmpeg"
+    
+    if bundled.exists():
+        return str(bundled)
+    
+    # Try to find ffmpeg in PATH
+    ffmpeg_in_path = shutil.which("ffmpeg")
+    if ffmpeg_in_path:
+        return ffmpeg_in_path
+    
+    # Fallback to command name
     return "ffmpeg"
 
 
@@ -77,15 +96,20 @@ def get_deno_path():
     """Get Deno executable path (required for yt-dlp --remote-components)
     
     Checks in order:
-    1. Bundled deno.exe in bin/ folder (Windows)
+    1. Bundled deno in app_dir/bin/ folder (downloaded via Library page)
     2. deno in system PATH
     3. None if not found
     """
-    if getattr(sys, 'frozen', False):
-        # Check bundled deno in bin folder
-        bundled = get_app_dir() / "bin" / "deno.exe"
-        if bundled.exists():
-            return str(bundled)
+    app_dir = get_app_dir()
+    
+    # Check bundled deno (works for both frozen and development)
+    if sys.platform.startswith('win'):
+        bundled = app_dir / "bin" / "deno.exe"
+    else:
+        bundled = app_dir / "bin" / "deno"
+    
+    if bundled.exists():
+        return str(bundled)
     
     # Try to find deno in PATH
     deno_path = shutil.which("deno")

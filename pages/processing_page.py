@@ -30,39 +30,42 @@ class ProcessingPage(ctk.CTkFrame):
         webbrowser.open("https://s.id/ytsdiscord")
     
     def show_page(self, page_name: str):
-        """Navigate to another page (not used in processing page, but kept for consistency)"""
+        """Navigate to another page"""
         pass
     
     def create_ui(self):
         """Create the processing page UI"""
-        # Import header and footer components
         from components.page_layout import PageHeader, PageFooter
         
-        # Set background color to match other pages
         self.configure(fg_color=("#1a1a1a", "#0a0a0a"))
         
-        # Header with back button
+        # Header
         header = PageHeader(self, self, show_nav_buttons=False, show_back_button=True, page_title="🎬 Processing")
         header.pack(fill="x", padx=20, pady=(15, 10))
         
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         
-        # Progress steps
-        steps_frame = ctk.CTkFrame(main)
+        # Progress steps - 3 cards horizontal
+        steps_frame = ctk.CTkFrame(main, fg_color=("gray90", "gray17"))
         steps_frame.pack(fill="x", padx=15, pady=15)
+        
+        ctk.CTkLabel(steps_frame, text="Progress", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=15, pady=(12, 8))
+        
+        cards_frame = ctk.CTkFrame(steps_frame, fg_color="transparent")
+        cards_frame.pack(fill="x", padx=10, pady=(0, 12))
+        cards_frame.grid_columnconfigure((0, 1, 2), weight=1, uniform="step")
         
         self.steps = []
         step_titles = [
-            ("Download", "Downloading video & subtitles"),
-            ("Analyze", "Finding highlights with AI"),
-            ("Process", "Creating clips"),
-            ("Finalize", "Adding captions & hooks")
+            "Downloading Video & Subtitles",
+            "Finding Highlights with AI", 
+            "Processing Video"
         ]
         
-        for i, (name, title) in enumerate(step_titles, 1):
-            step = ProgressStep(steps_frame, i, title)
-            step.pack(fill="x", pady=8, padx=10)
+        for i, title in enumerate(step_titles):
+            step = ProgressStep(cards_frame, i + 1, title)
+            step.grid(row=0, column=i, padx=5, pady=5, sticky="nsew")
             self.steps.append(step)
         
         # Current status
@@ -70,8 +73,8 @@ class ProcessingPage(ctk.CTkFrame):
         self.status_frame.pack(fill="x", padx=15, pady=(0, 15))
         
         self.status_label = ctk.CTkLabel(self.status_frame, text="Initializing...", 
-            font=ctk.CTkFont(size=14), wraplength=480)
-        self.status_label.pack(pady=15)
+            font=ctk.CTkFont(size=13), wraplength=480)
+        self.status_label.pack(pady=12)
         
         # Token usage (compact)
         token_frame = ctk.CTkFrame(main)
@@ -89,11 +92,10 @@ class ProcessingPage(ctk.CTkFrame):
             lbl.pack(side="right", padx=(5, 8), pady=5)
             setattr(self, attr, lbl)
 
-        # Buttons - reorganize layout
+        # Buttons
         btn_frame = ctk.CTkFrame(main, fg_color="transparent")
         btn_frame.pack(fill="x", padx=15, pady=(0, 15))
         
-        # Row 1: Cancel and Back
         row1 = ctk.CTkFrame(btn_frame, fg_color="transparent")
         row1.pack(fill="x", pady=(0, 5))
         
@@ -104,7 +106,6 @@ class ProcessingPage(ctk.CTkFrame):
         self.back_btn = ctk.CTkButton(row1, text="← Back", height=45, state="disabled", command=self.on_back)
         self.back_btn.pack(side="left", fill="x", expand=True, padx=(5, 0))
         
-        # Row 2: Open Output and View Results
         row2 = ctk.CTkFrame(btn_frame, fg_color="transparent")
         row2.pack(fill="x")
         
@@ -164,12 +165,10 @@ class ProcessingPage(ctk.CTkFrame):
     
     def on_error(self, error: str):
         """Called when processing encounters an error"""
-        # Get error log path
         error_log = get_error_log_path()
         
-        # Update status with error and log file info
         if error_log:
-            error_msg = f"❌ {error}\n\n📄 Error details saved to:\n{error_log}\n\nPlease send this file when reporting issues."
+            error_msg = f"❌ {error}\n\n📄 Error details saved to:\n{error_log}"
         else:
             error_msg = f"❌ {error}"
         

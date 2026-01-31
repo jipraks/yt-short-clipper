@@ -385,30 +385,36 @@ class GPUDetector:
         # Build encoder-specific arguments
         if encoder == 'h264_nvenc':
             # NVIDIA NVENC
+            # -pix_fmt yuv420p required for compatibility with various source formats
             return [
                 '-c:v', 'h264_nvenc',
                 '-preset', preset,
                 '-rc', 'vbr',
                 '-cq', '19',  # Similar quality to CRF 18
-                '-b:v', '0'   # Variable bitrate
+                '-b:v', '0',  # Variable bitrate
+                '-pix_fmt', 'yuv420p'
             ]
         
         elif encoder == 'h264_amf':
             # AMD AMF
+            # -pix_fmt yuv420p required for compatibility with various source formats
             return [
                 '-c:v', 'h264_amf',
                 '-quality', preset,
                 '-rc', 'vbr_latency',
                 '-qp_i', '18',
-                '-qp_p', '19'
+                '-qp_p', '19',
+                '-pix_fmt', 'yuv420p'
             ]
         
         elif encoder == 'h264_qsv':
             # Intel QSV
+            # -pix_fmt yuv420p required for compatibility with various source formats
             return [
                 '-c:v', 'h264_qsv',
                 '-preset', preset,
-                '-global_quality', '19'
+                '-global_quality', '19',
+                '-pix_fmt', 'yuv420p'
             ]
         
         # Fallback to CPU

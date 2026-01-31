@@ -119,6 +119,7 @@ class WebAPI:
         temperature = cfg.get("temperature", 1.0)
         tts_model = cfg.get("tts_model", "tts-1")
         watermark_settings = cfg.get("watermark", {"enabled": False})
+        credit_watermark_settings = cfg.get("credit_watermark", {"enabled": False})
         face_tracking_mode = cfg.get("face_tracking_mode", "opencv")
         mediapipe_settings = cfg.get("mediapipe_settings", {
             "lip_activity_threshold": 0.15,
@@ -140,6 +141,7 @@ class WebAPI:
             temperature=temperature,
             system_prompt=system_prompt,
             watermark_settings=watermark_settings,
+            credit_watermark_settings=credit_watermark_settings,
             face_tracking_mode=face_tracking_mode,
             mediapipe_settings=mediapipe_settings,
             ai_providers=ai_providers,

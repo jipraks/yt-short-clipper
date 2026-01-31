@@ -71,7 +71,7 @@ class YTShortClipperApp(ctk.CTk):
         self.cookies_path = COOKIES_FILE  # NEW: Store cookies path
         
         self.title("YT Short Clipper")
-        self.geometry("680x780")
+        self.geometry("780x620")
         self.resizable(False, False)
         
         ctk.set_appearance_mode("dark")
@@ -155,9 +155,11 @@ class YTShortClipperApp(ctk.CTk):
         self.current_thumbnail = None
         self.create_preview_placeholder()
         
-        # Reset subtitle state
+        # Reset subtitle state (keep visible but disabled)
         self.subtitle_loaded = False
-        self.subtitle_frame.pack_forget()
+        self.subtitle_loading.pack_forget()
+        self.subtitle_dropdown.configure(state="disabled", values=["id - Indonesian"])
+        self.subtitle_var.set("id - Indonesian")
         
         # Reset clips input to default
         self.clips_var.set("5")
@@ -190,7 +192,6 @@ class YTShortClipperApp(ctk.CTk):
             play_img.thumbnail((20, 20), Image.Resampling.LANCZOS)
             self.play_icon = ctk.CTkImage(light_image=play_img, dark_image=play_img, size=(20, 20))
             
-            # Load refresh icon for status pages
             refresh_img = Image.open(ASSETS_DIR / "refresh.png")
             refresh_img.thumbnail((20, 20), Image.Resampling.LANCZOS)
             self.refresh_icon = ctk.CTkImage(light_image=refresh_img, dark_image=refresh_img, size=(20, 20))
@@ -199,183 +200,163 @@ class YTShortClipperApp(ctk.CTk):
             self.play_icon = None
             self.refresh_icon = None
         
-        # Main content area - two columns
-        main = ctk.CTkFrame(page, fg_color="transparent")
-        main.pack(fill="both", expand=True, padx=20, pady=(10, 20))
+        # ===== TOP ROW: Left config + Right thumbnail =====
+        top_row = ctk.CTkFrame(page, fg_color="transparent")
+        top_row.pack(fill="x", padx=20, pady=(5, 10))
         
-        # Left column - Configuration
-        left_col = ctk.CTkFrame(main, fg_color="transparent")
-        left_col.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        # Left column - URL, Subtitle, Clip Count
+        left_col = ctk.CTkFrame(top_row, fg_color="transparent")
+        left_col.pack(side="left", fill="y", padx=(0, 20))
         
-        # YouTube URL input
-        ctk.CTkLabel(left_col, text="YouTube URL", font=ctk.CTkFont(size=12, weight="bold"), 
-            anchor="w").pack(fill="x", pady=(0, 5))
+        # YouTube URL
+        ctk.CTkLabel(left_col, text="YouTube URL", font=ctk.CTkFont(size=11, weight="bold"), 
+            anchor="w").pack(fill="x", pady=(0, 3))
         
-        url_frame = ctk.CTkFrame(left_col, fg_color=("#2b2b2b", "#1a1a1a"), corner_radius=8)
-        url_frame.pack(fill="x", pady=(0, 15))
-        
-        # URL input with paste button
-        url_input_container = ctk.CTkFrame(url_frame, fg_color="transparent")
-        url_input_container.pack(fill="x", padx=8, pady=8)
+        url_input_container = ctk.CTkFrame(left_col, fg_color="transparent")
+        url_input_container.pack(fill="x", pady=(0, 8))
         
         self.url_var = ctk.StringVar()
         self.url_var.trace("w", self.on_url_change)
         self.url_entry = ctk.CTkEntry(url_input_container, textvariable=self.url_var, 
-            placeholder_text="Paste YouTube link here...", height=40, border_width=1,
-            border_color=("#3a3a3a", "#2a2a2a"),
-            fg_color=("#1a1a1a", "#0a0a0a"))
-        self.url_entry.pack(side="left", fill="x", expand=True, padx=(4, 8))
+            placeholder_text="Paste YouTube link...", width=220, height=32, border_width=1,
+            border_color=("#3a3a3a", "#2a2a2a"), fg_color=("#1a1a1a", "#0a0a0a"))
+        self.url_entry.pack(side="left", padx=(0, 5))
         
-        # Paste button
-        self.paste_btn = ctk.CTkButton(url_input_container, text="📋 Paste", width=80, height=36,
+        self.paste_btn = ctk.CTkButton(url_input_container, text="📋 Paste", width=65, height=32,
             fg_color=("#3a3a3a", "#2a2a2a"), hover_color=("#4a4a4a", "#3a3a3a"),
-            font=ctk.CTkFont(size=11), command=self.paste_url)
-        self.paste_btn.pack(side="right")
+            font=ctk.CTkFont(size=10), command=self.paste_url)
+        self.paste_btn.pack(side="left")
         
-        options_frame = ctk.CTkFrame(url_frame, fg_color="transparent")
-        options_frame.pack(fill="x", padx=8, pady=(0, 8))
+        # Subtitle Language
+        ctk.CTkLabel(left_col, text="Subtitle Language", font=ctk.CTkFont(size=11, weight="bold"), 
+            anchor="w").pack(fill="x", pady=(3, 3))
         
-        # Subtitle selector (hidden by default) - own row
-        self.subtitle_frame = ctk.CTkFrame(options_frame, fg_color="transparent")
+        self.subtitle_frame = ctk.CTkFrame(left_col, fg_color="transparent")
         self.subtitle_frame.pack(fill="x", pady=(0, 8))
-        self.subtitle_frame.pack_forget()  # Hide initially
-        self.subtitle_loaded = False  # Track if subtitles loaded successfully
-        
-        subtitle_label = ctk.CTkLabel(self.subtitle_frame, text="Subtitle Language:", 
-            font=ctk.CTkFont(size=11), anchor="w")
-        subtitle_label.pack(fill="x", padx=(4, 8))
+        self.subtitle_loaded = False
         
         self.subtitle_var = ctk.StringVar(value="id - Indonesian")
         self.subtitle_dropdown = ctk.CTkOptionMenu(self.subtitle_frame, 
-            variable=self.subtitle_var, values=["id - Indonesian"], 
-            width=200, height=32, fg_color=("#3a3a3a", "#2a2a2a"),
-            button_color=("#3a3a3a", "#2a2a2a"), button_hover_color=("#4a4a4a", "#3a3a3a"))
-        self.subtitle_dropdown.pack(fill="x", padx=(4, 8))
+            variable=self.subtitle_var, values=["id - Indonesian"], width=290,
+            height=32, fg_color=("#2b2b2b", "#1a1a1a"),
+            button_color=("#3a3a3a", "#2a2a2a"), button_hover_color=("#4a4a4a", "#3a3a3a"),
+            state="disabled")
+        self.subtitle_dropdown.pack(anchor="w")
         
-        # Loading indicator for subtitle fetch
         self.subtitle_loading = ctk.CTkLabel(self.subtitle_frame, text="⏳ Loading...", 
             font=ctk.CTkFont(size=10), text_color="gray")
         
-        # Cookies.txt upload section
-        ctk.CTkLabel(left_col, text="YouTube Cookies", font=ctk.CTkFont(size=12, weight="bold"), 
-            anchor="w").pack(fill="x", pady=(0, 5))
+        # Clip Count
+        ctk.CTkLabel(left_col, text="Clip Count", font=ctk.CTkFont(size=11, weight="bold"), 
+            anchor="w").pack(fill="x", pady=(3, 3))
         
-        cookies_frame = ctk.CTkFrame(left_col, fg_color=("#2b2b2b", "#1a1a1a"), corner_radius=8)
-        cookies_frame.pack(fill="x", pady=(0, 15))
-        
-        cookies_container = ctk.CTkFrame(cookies_frame, fg_color="transparent")
-        cookies_container.pack(fill="x", padx=8, pady=8)
-        
-        # Cookies status label
-        self.cookies_status_label = ctk.CTkLabel(cookies_container, 
-            text="🍪 No cookies.txt found", 
-            font=ctk.CTkFont(size=11), anchor="w", text_color="gray")
-        self.cookies_status_label.pack(side="left", fill="x", expand=True, padx=(4, 8))
-        
-        # Upload button
-        upload_cookies_btn = ctk.CTkButton(cookies_container, text="📁 Upload", width=80, height=36,
-            fg_color=("#3a3a3a", "#2a2a2a"), hover_color=("#4a4a4a", "#3a3a3a"),
-            font=ctk.CTkFont(size=11), command=self.upload_cookies)
-        upload_cookies_btn.pack(side="right")
-        
-        # Note: check_cookies_status() will be called after all widgets are created
-        
-        # Clip Configuration section
-        config_frame = ctk.CTkFrame(left_col, fg_color=("#2b2b2b", "#1a1a1a"), corner_radius=10)
-        config_frame.pack(fill="x", pady=(0, 15))
-        
-        ctk.CTkLabel(config_frame, text="Clip Configuration", font=ctk.CTkFont(size=12, weight="bold"), 
-            anchor="w").pack(fill="x", padx=15, pady=(12, 8))
-        
-        # Clips Count
-        clips_row = ctk.CTkFrame(config_frame, fg_color="transparent")
-        clips_row.pack(fill="x", padx=15, pady=(0, 12))
-        
-        ctk.CTkLabel(clips_row, text="Clips Count", font=ctk.CTkFont(size=11), 
-            anchor="w").pack(side="left", fill="x", expand=True)
-        
-        clips_input_frame = ctk.CTkFrame(clips_row, fg_color="transparent")
-        clips_input_frame.pack(side="right")
+        clips_input_frame = ctk.CTkFrame(left_col, fg_color="transparent")
+        clips_input_frame.pack(fill="x", pady=(0, 5))
         
         self.clips_var = ctk.StringVar(value="5")
-        clips_entry = ctk.CTkEntry(clips_input_frame, textvariable=self.clips_var, width=80, height=32,
-            fg_color=("#3a3a3a", "#2a2a2a"), border_width=0, justify="center")
-        clips_entry.pack(side="left", padx=(0, 5))
+        clips_entry = ctk.CTkEntry(clips_input_frame, textvariable=self.clips_var, width=60, height=32,
+            fg_color=("#2b2b2b", "#1a1a1a"), border_width=1, border_color=("#3a3a3a", "#2a2a2a"), justify="center")
+        clips_entry.pack(side="left", padx=(0, 8))
         
         ctk.CTkLabel(clips_input_frame, text="(1-10)", font=ctk.CTkFont(size=10), 
             text_color="gray").pack(side="left")
         
-        # Enhancements section
-        enhance_frame = ctk.CTkFrame(left_col, fg_color=("#2b2b2b", "#1a1a1a"), corner_radius=10)
-        enhance_frame.pack(fill="x", pady=(0, 15))
+        # Right column - Thumbnail 16:9
+        right_col = ctk.CTkFrame(top_row, fg_color="transparent")
+        right_col.pack(side="right", fill="y")
         
-        ctk.CTkLabel(enhance_frame, text="Enhancements", font=ctk.CTkFont(size=12, weight="bold"), 
-            anchor="w").pack(fill="x", padx=15, pady=(12, 8))
+        # Video preview frame 16:9 (400x225)
+        self.thumb_frame = ctk.CTkFrame(right_col, width=400, height=225, 
+            fg_color=("#2b2b2b", "#1a1a1a"), corner_radius=8)
+        self.thumb_frame.pack(anchor="ne")
+        self.thumb_frame.pack_propagate(False)
+        
+        self.create_preview_placeholder()
+        
+        # ===== MIDDLE ROW: Cookies + Enhancements (full width 50:50) =====
+        middle_row = ctk.CTkFrame(page, fg_color="transparent")
+        middle_row.pack(fill="x", padx=20, pady=(0, 10))
+        
+        # YouTube Cookies card (left 50%)
+        cookies_frame = ctk.CTkFrame(middle_row, fg_color=("#2b2b2b", "#1a1a1a"), corner_radius=8)
+        cookies_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        
+        ctk.CTkLabel(cookies_frame, text="YouTube Cookies", font=ctk.CTkFont(size=11, weight="bold"), 
+            anchor="w").pack(fill="x", padx=12, pady=(10, 5))
+        
+        self.cookies_status_label = ctk.CTkLabel(cookies_frame, text="🍪 No cookies", 
+            font=ctk.CTkFont(size=10), anchor="w", text_color="gray")
+        self.cookies_status_label.pack(fill="x", padx=12, pady=(0, 5))
+        
+        upload_cookies_btn = ctk.CTkButton(cookies_frame, text="📁 Upload", height=28,
+            fg_color=("#3a3a3a", "#2a2a2a"), hover_color=("#4a4a4a", "#3a3a3a"),
+            font=ctk.CTkFont(size=10), command=self.upload_cookies)
+        upload_cookies_btn.pack(fill="x", padx=12, pady=(0, 10))
+        
+        # Enhancements card (right 50%)
+        enhance_frame = ctk.CTkFrame(middle_row, fg_color=("#2b2b2b", "#1a1a1a"), corner_radius=8)
+        enhance_frame.pack(side="right", fill="both", expand=True, padx=(5, 0))
+        
+        ctk.CTkLabel(enhance_frame, text="Enhancements", font=ctk.CTkFont(size=11, weight="bold"), 
+            anchor="w").pack(fill="x", padx=12, pady=(10, 5))
         
         # Captions toggle
         captions_row = ctk.CTkFrame(enhance_frame, fg_color="transparent")
-        captions_row.pack(fill="x", padx=15, pady=(0, 8))
+        captions_row.pack(fill="x", padx=12, pady=(0, 3))
         
-        captions_left = ctk.CTkFrame(captions_row, fg_color="transparent")
-        captions_left.pack(side="left", fill="x", expand=True)
-        
-        ctk.CTkLabel(captions_left, text="💬 Captions", font=ctk.CTkFont(size=11, weight="bold"), 
-            anchor="w").pack(anchor="w")
+        ctk.CTkLabel(captions_row, text="💬 Captions", font=ctk.CTkFont(size=10), 
+            anchor="w").pack(side="left")
         
         self.caption_var = ctk.BooleanVar(value=False)
-        caption_switch = ctk.CTkSwitch(captions_row, text="OFF", variable=self.caption_var, 
-            width=60, command=self.update_caption_switch_text)
-        caption_switch.pack(side="right")
-        self.caption_switch = caption_switch
+        self.caption_switch = ctk.CTkSwitch(captions_row, text="", variable=self.caption_var, 
+            width=36, height=18, command=self.update_caption_switch_text)
+        self.caption_switch.pack(side="right")
         
-        # Hook Text toggle
+        # Hook toggle
         hook_row = ctk.CTkFrame(enhance_frame, fg_color="transparent")
-        hook_row.pack(fill="x", padx=15, pady=(0, 12))
+        hook_row.pack(fill="x", padx=12, pady=(0, 10))
         
-        hook_left = ctk.CTkFrame(hook_row, fg_color="transparent")
-        hook_left.pack(side="left", fill="x", expand=True)
-        
-        ctk.CTkLabel(hook_left, text="🪝 Hook Text", font=ctk.CTkFont(size=11, weight="bold"), 
-            anchor="w").pack(anchor="w")
+        ctk.CTkLabel(hook_row, text="🪝 Hook Text", font=ctk.CTkFont(size=10), 
+            anchor="w").pack(side="left")
         
         self.hook_var = ctk.BooleanVar(value=False)
-        hook_switch = ctk.CTkSwitch(hook_row, text="OFF", variable=self.hook_var, 
-            width=60, command=self.update_hook_switch_text)
-        hook_switch.pack(side="right")
-        self.hook_switch = hook_switch
+        self.hook_switch = ctk.CTkSwitch(hook_row, text="", variable=self.hook_var, 
+            width=36, height=18, command=self.update_hook_switch_text)
+        self.hook_switch.pack(side="right")
         
-        # Generate Shorts button
-        self.start_btn = ctk.CTkButton(left_col, text="Generate Shorts", image=self.play_icon, 
-            compound="left", font=ctk.CTkFont(size=15, weight="bold"), 
-            height=50, command=self.start_processing, state="disabled", 
-            fg_color="gray", hover_color="gray", corner_radius=10)
-        self.start_btn.pack(fill="x", pady=(0, 8))
+        # ===== BOTTOM: Generate button + Browse =====
+        bottom_section = ctk.CTkFrame(page, fg_color="transparent")
+        bottom_section.pack(fill="x", padx=20, pady=(0, 5))
         
-        # Browse Videos link
-        browse_link = ctk.CTkLabel(left_col, text="📂 Browse Videos", 
-            font=ctk.CTkFont(size=11), text_color=("#3B8ED0", "#1F6AA5"), cursor="hand2")
-        browse_link.pack(pady=(0, 0))
+        self.start_btn = ctk.CTkButton(bottom_section, text="Generate Shorts", image=self.play_icon, 
+            compound="left", font=ctk.CTkFont(size=13, weight="bold"),
+            height=40, command=self.start_processing, state="disabled", 
+            fg_color="gray", hover_color="gray", corner_radius=8)
+        self.start_btn.pack(fill="x", pady=(0, 5))
+        
+        browse_link = ctk.CTkLabel(bottom_section, text="📂 Browse Videos", 
+            font=ctk.CTkFont(size=10), text_color=("#3B8ED0", "#1F6AA5"), cursor="hand2")
+        browse_link.pack()
         browse_link.bind("<Button-1>", lambda e: self.show_page("browse"))
         
-        # Check cookies status after all widgets are created
+        # ===== LIB STATUS =====
+        self.lib_status_frame = ctk.CTkFrame(page, fg_color="transparent")
+        self.lib_status_frame.pack(fill="x", padx=20, pady=(5, 0))
+        
+        self.lib_status_label = ctk.CTkLabel(self.lib_status_frame, text="", 
+            font=ctk.CTkFont(size=10), cursor="hand2")
+        self.lib_status_label.pack()
+        self.lib_status_label.bind("<Button-1>", lambda e: self.show_page("lib_status"))
+        
+        # Check and update lib status
+        self.check_lib_status()
+        
+        # Check cookies status
         self.check_cookies_status()
-        
-        # Right column - Video Preview
-        right_col = ctk.CTkFrame(main, fg_color="transparent")
-        right_col.pack(side="right", fill="both", expand=True, padx=(10, 0))
-        
-        # Video preview frame with landscape aspect ratio for YouTube thumbnails
-        self.thumb_frame = ctk.CTkFrame(right_col, width=400, height=520, 
-            fg_color=("#2b2b2b", "#1a1a1a"), corner_radius=15)
-        self.thumb_frame.pack(fill="both", expand=True)
-        self.thumb_frame.pack_propagate(False)
-        
-        # Preview content container (will be recreated when showing thumbnail)
-        self.create_preview_placeholder()
         
         # Footer
         footer = PageFooter(page, self)
-        footer.pack(fill="x", padx=20, pady=(10, 15), side="bottom")
+        footer.pack(fill="x", padx=20, pady=(5, 8), side="bottom")
     
     def create_preview_placeholder(self):
         """Create placeholder content for video preview"""
@@ -383,24 +364,14 @@ class YTShortClipperApp(ctk.CTk):
         for widget in self.thumb_frame.winfo_children():
             widget.destroy()
         
-        # Preview content container
+        # Preview content container - centered
         preview_container = ctk.CTkFrame(self.thumb_frame, fg_color="transparent")
         preview_container.place(relx=0.5, rely=0.5, anchor="center")
         
-        # Play button icon (large)
-        play_circle = ctk.CTkFrame(preview_container, width=80, height=80, 
-            fg_color=("#3a3a3a", "#2a2a2a"), corner_radius=40)
-        play_circle.pack(pady=(0, 15))
-        play_circle.pack_propagate(False)
-        
-        if self.play_icon:
-            play_label = ctk.CTkLabel(play_circle, image=self.play_icon, text="")
-            play_label.place(relx=0.5, rely=0.5, anchor="center")
-        
         # Placeholder text
         self.thumb_label = ctk.CTkLabel(preview_container, 
-            text="Paste a YouTube link\nto preview a video", 
-            font=ctk.CTkFont(size=13), text_color="gray", justify="center")
+            text="📺 Video thumbnail will appear here", 
+            font=ctk.CTkFont(size=12), text_color="gray", justify="center")
         self.thumb_label.pack()
     
     def paste_url(self):
@@ -706,9 +677,21 @@ class YTShortClipperApp(ctk.CTk):
         self.load_config()
         self.check_youtube_status()
     
-    def on_settings_saved(self, api_key, base_url, model):
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
-        # Update config will be reflected when user returns to home page
+    def on_settings_saved(self, updated_config):
+        """Handle settings saved - accepts config dict"""
+        # Update internal config
+        if isinstance(updated_config, dict):
+            self.config.config.update(updated_config)
+            self.config.save()
+            
+            # Update OpenAI client if highlight_finder config changed
+            ai_providers = updated_config.get("ai_providers", {})
+            hf_config = ai_providers.get("highlight_finder", {})
+            if hf_config.get("api_key"):
+                self.client = OpenAI(
+                    api_key=hf_config.get("api_key"),
+                    base_url=hf_config.get("base_url", "https://api.openai.com/v1")
+                )
     
     def get_youtube_client(self):
         """Get OpenAI client for YouTube title generation"""
@@ -737,14 +720,17 @@ class YTShortClipperApp(ctk.CTk):
             self.subtitle_loaded = False
             # Recreate placeholder
             self.create_preview_placeholder()
-            # Hide subtitle selector
-            self.subtitle_frame.pack_forget()
+            # Reset subtitle dropdown to disabled state
+            self.subtitle_loading.pack_forget()
+            self.subtitle_dropdown.configure(state="disabled", values=["id - Indonesian"])
+            self.subtitle_var.set("id - Indonesian")
             # Disable start button when URL is invalid or cookies missing
             self.update_start_button_state()
     
     def update_start_button_state(self):
-        """Update start button state based on URL and cookies validation"""
+        """Update start button state based on URL, cookies, and library validation"""
         has_cookies = self.cookies_path.exists()
+        libs_ok = getattr(self, 'libs_installed', True)  # Default True if not checked yet
         
         # If no cookies, disable everything
         if not has_cookies:
@@ -757,15 +743,71 @@ class YTShortClipperApp(ctk.CTk):
         self.url_entry.configure(state="normal")
         self.paste_btn.configure(state="normal")
         
-        # Check if URL is valid and subtitle is loaded for start button
+        # Check if URL is valid, subtitle is loaded, and libs are installed
         url = self.url_var.get().strip()
         video_id = extract_video_id(url)
         
-        if video_id and self.subtitle_loaded:
+        if video_id and self.subtitle_loaded and libs_ok:
             self.start_btn.configure(state="normal", fg_color=("#1f538d", "#14375e"), 
                                     hover_color=("#144870", "#0d2a47"))
         else:
             self.start_btn.configure(state="disabled", fg_color="gray", hover_color="gray")
+    
+    def check_lib_status(self):
+        """Check library installation status and update UI"""
+        from utils.dependency_manager import check_dependency
+        from utils.helpers import get_app_dir, is_ytdlp_module_available
+        
+        app_dir = get_app_dir()
+        
+        # Check each dependency
+        ffmpeg_ok = check_dependency('ffmpeg', app_dir)
+        deno_ok = check_dependency('deno', app_dir)
+        ytdlp_ok = is_ytdlp_module_available()
+        
+        all_ok = ffmpeg_ok and deno_ok and ytdlp_ok
+        self.libs_installed = all_ok
+        
+        if all_ok:
+            # All installed - hide lib status
+            self.lib_status_frame.pack_forget()
+        else:
+            # Clear existing widgets
+            for widget in self.lib_status_frame.winfo_children():
+                widget.destroy()
+            
+            # Create status row with colored indicators
+            status_row = ctk.CTkFrame(self.lib_status_frame, fg_color="transparent")
+            status_row.pack()
+            
+            ctk.CTkLabel(status_row, text="Lib Status:", font=ctk.CTkFont(size=10), 
+                text_color="gray").pack(side="left", padx=(0, 5))
+            
+            # Deno
+            deno_color = "#4ade80" if deno_ok else "#f87171"
+            ctk.CTkLabel(status_row, text=f"Deno {'✓' if deno_ok else '✗'}", 
+                font=ctk.CTkFont(size=10), text_color=deno_color).pack(side="left", padx=(0, 8))
+            
+            # YT-DLP
+            ytdlp_color = "#4ade80" if ytdlp_ok else "#f87171"
+            ctk.CTkLabel(status_row, text=f"YT-DLP {'✓' if ytdlp_ok else '✗'}", 
+                font=ctk.CTkFont(size=10), text_color=ytdlp_color).pack(side="left", padx=(0, 8))
+            
+            # FFmpeg
+            ffmpeg_color = "#4ade80" if ffmpeg_ok else "#f87171"
+            ctk.CTkLabel(status_row, text=f"FFmpeg {'✓' if ffmpeg_ok else '✗'}", 
+                font=ctk.CTkFont(size=10), text_color=ffmpeg_color).pack(side="left", padx=(0, 8))
+            
+            # Install link
+            install_link = ctk.CTkLabel(status_row, text="(Install required libraries)", 
+                font=ctk.CTkFont(size=10), text_color="#f87171", cursor="hand2")
+            install_link.pack(side="left")
+            install_link.bind("<Button-1>", lambda e: self.show_page("lib_status"))
+            
+            self.lib_status_frame.pack(fill="x", padx=20, pady=(5, 0))
+        
+        # Update start button state
+        self.update_start_button_state()
     
     def load_subtitles(self, url: str):
         """Fetch available subtitles for the video"""
@@ -834,16 +876,17 @@ class YTShortClipperApp(ctk.CTk):
     
     def show_subtitle_loading(self):
         """Show loading state for subtitle selector"""
-        self.subtitle_frame.pack(fill="x", padx=8, pady=(0, 8))
-        self.subtitle_dropdown.pack_forget()
-        self.subtitle_loading.pack(side="left", padx=(8, 0))
+        # Keep dropdown visible but show loading indicator
+        self.subtitle_dropdown.configure(state="disabled")
+        self.subtitle_loading.pack(fill="x", padx=(4, 8), pady=(4, 0))
     
     def on_subtitle_error(self, error: str):
         """Handle subtitle fetch error"""
         debug_log(f"Subtitle fetch error: {error}")
         self.subtitle_loaded = False
-        # Hide subtitle selector on error
-        self.subtitle_frame.pack_forget()
+        # Hide loading, keep dropdown disabled
+        self.subtitle_loading.pack_forget()
+        self.subtitle_dropdown.configure(state="disabled")
         # Show error to user
         messagebox.showerror("Subtitle Error", f"Failed to fetch subtitles:\n\n{error}")
         # Update button state
@@ -865,11 +908,7 @@ class YTShortClipperApp(ctk.CTk):
                 break
         
         self.subtitle_var.set(default_value)
-        self.subtitle_dropdown.configure(values=options)
-        self.subtitle_dropdown.pack(side="left")
-        
-        # Show subtitle frame
-        self.subtitle_frame.pack(fill="x", padx=8, pady=(0, 8))
+        self.subtitle_dropdown.configure(values=options, state="normal")
         
         # Mark subtitles as loaded
         self.subtitle_loaded = True
@@ -913,8 +952,8 @@ class YTShortClipperApp(ctk.CTk):
                     raise Exception("All thumbnail qualities failed")
                     
                 # Resize to fit preview area in landscape (16:9 aspect ratio)
-                # Max width 380px to fit in the frame with padding
-                img.thumbnail((380, 214), Image.Resampling.LANCZOS)
+                # Frame is 400x225
+                img.thumbnail((390, 220), Image.Resampling.LANCZOS)
                 self.after(0, lambda: self.show_thumbnail(img))
             except Exception as e:
                 debug_log(f"Thumbnail load failed: {e}")
@@ -1179,6 +1218,7 @@ class YTShortClipperApp(ctk.CTk):
             temperature = self.config.get("temperature", 1.0)
             tts_model = self.config.get("tts_model", "tts-1")
             watermark_settings = self.config.get("watermark", {"enabled": False})
+            credit_watermark_settings = self.config.get("credit_watermark", {"enabled": False})
             
             # Get face tracking mode from config (set in settings page)
             face_tracking_mode = self.config.get("face_tracking_mode", "opencv")
@@ -1200,6 +1240,7 @@ class YTShortClipperApp(ctk.CTk):
                 temperature=temperature,
                 system_prompt=system_prompt,
                 watermark_settings=watermark_settings,
+                credit_watermark_settings=credit_watermark_settings,
                 face_tracking_mode=face_tracking_mode,
                 mediapipe_settings=mediapipe_settings,
                 ai_providers=self.config.get("ai_providers"),
@@ -1257,57 +1298,25 @@ class YTShortClipperApp(ctk.CTk):
             self.steps[0].set_active(status, step_progress)
             self.steps[1].reset()
             self.steps[2].reset()
-            self.steps[3].reset()
         elif "highlight" in status_lower or "finding" in status_lower:
             self.steps[0].set_done("Downloaded")
             self.steps[1].set_active(status, step_progress)
             self.steps[2].reset()
-            self.steps[3].reset()
-        elif "clip" in status_lower:
+        elif "clip" in status_lower or "clean" in status_lower:
             self.steps[0].set_done("Downloaded")
             self.steps[1].set_done("Found highlights")
             
-            # Parse clip progress and sub-step progress
-            if "cutting" in status_lower:
-                # Show progress bar even if no percentage yet
-                if step_progress is None:
-                    step_progress = 0.0
-                self.steps[2].set_active(status, step_progress)
-                self.steps[3].reset()
-            elif "portrait" in status_lower or "converting" in status_lower:
-                if step_progress is None:
-                    step_progress = 0.0
-                self.steps[2].set_active(status, step_progress)
-                self.steps[3].reset()
-            elif "hook" in status_lower:
-                if step_progress is None:
-                    step_progress = 0.0
-                self.steps[2].set_active(status, step_progress)
-                self.steps[3].reset()
-            elif "caption" in status_lower:
-                if step_progress is None:
-                    step_progress = 0.0
-                # Only show progress in step 3 (Creating clips), not step 4
-                self.steps[2].set_active(status, step_progress)
-                self.steps[3].reset()
-            elif "done" in status_lower:
-                # Extract clip number to show progress
-                match = re.search(r'Clip (\d+)/(\d+)', status)
-                if match:
-                    current, total = int(match.group(1)), int(match.group(2))
-                    percent = current / total
-                    self.steps[2].set_active(f"Clip {current}/{total} complete", percent)
-                else:
-                    self.steps[2].set_active(status, step_progress)
-                self.steps[3].reset()
+            if step_progress is None:
+                step_progress = 0.0
+            
+            # Extract clip number to show progress
+            match = re.search(r'Clip (\d+)/(\d+)', status)
+            if match:
+                current, total = int(match.group(1)), int(match.group(2))
+                percent = current / total
+                self.steps[2].set_active(f"Clip {current}/{total}", percent)
             else:
                 self.steps[2].set_active(status, step_progress)
-                self.steps[3].reset()
-        elif "clean" in status_lower:
-            self.steps[0].set_done("Downloaded")
-            self.steps[1].set_done("Found highlights")
-            self.steps[2].set_done("All clips created")
-            self.steps[3].set_active("Cleaning up...", step_progress)
         elif "complete" in status_lower:
             for step in self.steps:
                 step.set_done("Complete")

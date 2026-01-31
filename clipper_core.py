@@ -73,6 +73,7 @@ class AutoClipperCore:
         temperature: float = 1.0,
         system_prompt: str = None,
         watermark_settings: dict = None,
+        credit_watermark_settings: dict = None,
         face_tracking_mode: str = "opencv",
         mediapipe_settings: dict = None,
         ai_providers: dict = None,
@@ -128,6 +129,8 @@ class AutoClipperCore:
         self.temperature = temperature
         self.system_prompt = system_prompt or self.get_default_prompt()
         self.watermark_settings = watermark_settings or {"enabled": False}
+        self.credit_watermark_settings = credit_watermark_settings or {"enabled": False}
+        self.channel_name = ""  # Will be set after download
         self.face_tracking_mode = face_tracking_mode
         self.mediapipe_settings = mediapipe_settings or {
             "lip_activity_threshold": 0.15,
@@ -272,6 +275,9 @@ Transcript:
         # Step 1: Download video
         self.set_progress("Downloading video...", 0.1)
         video_path, srt_path, video_info = self.download_video(url)
+        
+        # Store channel name for credit watermark
+        self.channel_name = video_info.get("channel", "") if video_info else ""
         
         if self.is_cancelled():
             return
@@ -1172,6 +1178,7 @@ Transcript:
                 raise Exception(f"Failed to create final video with watermark: {final_file}")
             
             self.log("  ✓ Added watermark")
+            current_output = final_file
             current_step += 1
             
             # Cleanup temp captioned file if exists
@@ -1186,6 +1193,39 @@ Transcript:
             # No captions and no watermark, just copy current output to final
             import shutil
             shutil.copy(str(current_output), str(final_file))
+            current_output = final_file
+        
+        # Step 6: Add credit watermark (if enabled)
+        if self.credit_watermark_settings.get("enabled") and self.channel_name:
+            if self.is_cancelled():
+                return
+            
+            total_steps += 1
+            clip_progress("Adding credit...", current_step, 0)
+            
+            # If current_output is already final_file, we need a temp file
+            if str(current_output) == str(final_file):
+                temp_credit_input = clip_dir / "temp_before_credit.mp4"
+                import shutil
+                shutil.copy(str(final_file), str(temp_credit_input))
+                current_output = temp_credit_input
+            
+            self.add_credit_watermark_with_progress(str(current_output), str(final_file),
+                lambda p: clip_progress("Adding credit...", current_step, p))
+            
+            if not final_file.exists():
+                raise Exception(f"Failed to create final video with credit: {final_file}")
+            
+            self.log(f"  ✓ Added credit: Source: {self.channel_name}")
+            current_step += 1
+            
+            # Cleanup temp file
+            try:
+                temp_credit_input = clip_dir / "temp_before_credit.mp4"
+                if temp_credit_input.exists():
+                    temp_credit_input.unlink()
+            except Exception as e:
+                self.log(f"  Warning: Could not delete temp_before_credit.mp4: {e}")
         
         # Mark complete
         clip_progress("Done", total_steps, 0)
@@ -1221,6 +1261,8 @@ Transcript:
             "has_hook": add_hook,
             "has_captions": add_captions,
             "has_watermark": self.watermark_settings.get("enabled", False),
+            "has_credit": self.credit_watermark_settings.get("enabled", False),
+            "channel_name": self.channel_name,
         }
         
         with open(clip_dir / "data.json", "w", encoding="utf-8") as f:
@@ -3122,3 +3164,115 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         
         if not Path(output_path).exists():
             raise Exception("Failed to apply watermark")
+
+    def add_credit_watermark_with_progress(self, input_path: str, output_path: str, progress_callback):
+        """Add credit text watermark (channel name) to video with progress tracking"""
+        
+        if not self.channel_name:
+            self.log("  Warning: No channel name available, skipping credit")
+            import shutil
+            shutil.copy(input_path, output_path)
+            return
+        
+        progress_callback(0.1)
+        
+        # Get video dimensions
+        probe_cmd = [self.ffmpeg_path, "-i", input_path]
+        result = subprocess.run(probe_cmd, capture_output=True, text=True, creationflags=SUBPROCESS_FLAGS)
+        
+        res_match = re.search(r'(\d{3,4})x(\d{3,4})', result.stderr)
+        if res_match:
+            video_width, video_height = int(res_match.group(1)), int(res_match.group(2))
+        else:
+            video_width, video_height = 1080, 1920
+        
+        progress_callback(0.2)
+        
+        # Get credit watermark settings
+        size = self.credit_watermark_settings.get("size", 0.03)
+        pos_x = self.credit_watermark_settings.get("position_x", 0.5)
+        pos_y = self.credit_watermark_settings.get("position_y", 0.95)
+        opacity = self.credit_watermark_settings.get("opacity", 0.7)
+        
+        # Calculate font size in pixels (based on video height)
+        font_size = int(video_height * size)
+        
+        # Calculate position in pixels
+        x_pixels = int(pos_x * video_width)
+        y_pixels = int(pos_y * video_height)
+        
+        # Prepare credit text
+        credit_text = f"Source: {self.channel_name}"
+        # Escape special characters for FFmpeg drawtext
+        credit_text_escaped = credit_text.replace("'", "'\\''").replace(":", "\\:")
+        
+        # Build FFmpeg drawtext filter
+        # Use fontfile for portable FFmpeg (avoids fontconfig dependency)
+        # Try to find a system font, fallback to built-in if not available
+        font_file = None
+        if sys.platform == "win32":
+            # Windows fonts directory
+            windows_fonts = [
+                "C:/Windows/Fonts/arial.ttf",
+                "C:/Windows/Fonts/segoeui.ttf",
+                "C:/Windows/Fonts/tahoma.ttf",
+            ]
+            for font in windows_fonts:
+                if Path(font).exists():
+                    font_file = font.replace("\\", "/").replace(":", "\\:")
+                    break
+        
+        # Build filter string
+        if font_file:
+            filter_str = (
+                f"drawtext=fontfile='{font_file}':"
+                f"text='{credit_text_escaped}':"
+                f"fontsize={font_size}:"
+                f"fontcolor=white@{opacity}:"
+                f"borderw=2:"
+                f"bordercolor=black@{opacity}:"
+                f"x={x_pixels}-(text_w/2):"
+                f"y={y_pixels}-(text_h/2)"
+            )
+        else:
+            # Fallback without fontfile (may cause fontconfig warning but should still work)
+            filter_str = (
+                f"drawtext=text='{credit_text_escaped}':"
+                f"fontsize={font_size}:"
+                f"fontcolor=white@{opacity}:"
+                f"borderw=2:"
+                f"bordercolor=black@{opacity}:"
+                f"x={x_pixels}-(text_w/2):"
+                f"y={y_pixels}-(text_h/2)"
+            )
+        
+        progress_callback(0.3)
+        
+        # Get video duration for progress
+        duration_match = re.search(r"Duration: (\d+):(\d+):(\d+\.\d+)", result.stderr)
+        video_duration = 60
+        if duration_match:
+            h, m, s = duration_match.groups()
+            video_duration = int(h) * 3600 + int(m) * 60 + float(s)
+        
+        # Apply credit text using GPU/CPU encoder
+        encoder_args = self.get_video_encoder_args()
+        cmd = [
+            self.ffmpeg_path, "-y",
+            "-i", input_path,
+            "-vf", filter_str,
+            *encoder_args,
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            "-progress", "pipe:1",
+            output_path
+        ]
+        
+        self.log_ffmpeg_command(cmd, "Apply Credit Watermark")
+        
+        # Credit application is 30-100%
+        self.run_ffmpeg_with_progress(cmd, video_duration,
+            lambda p: progress_callback(0.3 + p * 0.7))
+        
+        if not Path(output_path).exists():
+            raise Exception("Failed to apply credit watermark")
