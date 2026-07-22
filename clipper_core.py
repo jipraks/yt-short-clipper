@@ -2749,9 +2749,9 @@ Transcript:
         out_w, out_h = 1080, 1920
         
         # Face detector
-        face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        )
+        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        face_cascade = cv2.CascadeClassifier(cascade_path)
+        use_face_detection = not face_cascade.empty()
         
         # First pass: analyze frames
         crop_positions = []
@@ -2763,7 +2763,7 @@ Transcript:
                 break
             
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50))
+            faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50)) if use_face_detection else []
             
             if len(faces) > 0:
                 # Find largest face
@@ -3674,9 +3674,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         out_w, out_h = 1080, 1920
         
         # Face detector
-        face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        )
+        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        face_cascade = cv2.CascadeClassifier(cascade_path)
+        use_face_detection = not face_cascade.empty()
+        if not use_face_detection:
+            self.log(f"  ⚠ Face cascade not loaded (path: {cascade_path}), falling back to center crop")
+            print(f"[DEBUG] Face cascade empty, using center crop fallback")
+            sys.stdout.flush()
         
         # First pass: analyze frames (0-40%)
         print("[DEBUG] Pass 1: Analyzing frames...")
@@ -3699,7 +3703,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 break
             
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50))
+            faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50)) if use_face_detection else []
             
             if len(faces) > 0:
                 # Find largest face
