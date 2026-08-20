@@ -1,0 +1,49 @@
+{
+  "name": "yt-short-clipper-v2",
+  "private": true,
+  "description": "Desktop app that turns long-form YouTube videos into 9:16 short-form clips, with AI highlight detection, face-tracking reframe, and word-by-word captions.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jipraks/yt-short-clipper.git"
+  },
+  "version": "2.0.6-beta",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "build:sidecar": "powershell -ExecutionPolicy Bypass -File scripts/build-sidecar.ps1",
+    "deps": "powershell -ExecutionPolicy Bypass -File scripts/fetch-deps.ps1",
+    "package": "powershell -ExecutionPolicy Bypass -File scripts/package-portable.ps1",
+    "release": "npm run build:sidecar && npm run build && npm run tauri build && npm run package",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.6.1",
+    "zustand": "^5.0.5",
+    "sonner": "^2.0.3",
+    "lucide-react": "^0.511.0",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-select": "^2.2.5",
+    "@radix-ui/react-slider": "^1.3.5",
+    "@radix-ui/react-tooltip": "^1.2.7",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.3.0",
+    "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-shell": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.5.2",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5",
+    "@tailwindcss/vite": "^4.1.8",
+    "tailwindcss": "^4.1.8",
+    "@tauri-apps/cli": "^2.5.0"
+  }
+}

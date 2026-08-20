@@ -1,0 +1,22 @@
+# Python dependencies for yt-short-clipper-v2 sidecar
+# Install with: py -m pip install -r requirements.txt
+
+# AI / LLM
+openai>=1.0.0
+
+# YouTube download
+yt-dlp>=2026.8.19
+
+# Video / image processing
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# MediaPipe face tracking
+mediapipe>=0.10.0
+
+# HTTP requests (Whisper API, Repliz API)
+requests>=2.31.0
+
+# Build tool for freezing the sidecar
+pyinstaller>=6.0.0

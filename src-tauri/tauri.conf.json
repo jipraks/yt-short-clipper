@@ -1,0 +1,50 @@
+{
+  "productName": "YTShortClipperV2",
+  "version": "2.0.6",
+  "identifier": "com.jipraks.ytshortclipper-v2",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "YT Short Clipper v2",
+        "width": 960,
+        "height": 680,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": ["binaries/ytclip-sidecar"],
+    "resources": {
+      "binaries/ffmpeg/ffmpeg.exe": "ffmpeg/ffmpeg.exe",
+      "binaries/bin/deno.exe": "bin/deno.exe",
+      "binaries/models/face_landmarker.task": "models/face_landmarker.task"
+    },
+    "targets": "all",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+[package]
+name = "yt-short-clipper-v2"
+version = "2.0.6"
+description = "YT Short Clipper v2"
+authors = ["jipraks"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/jipraks/yt-short-clipper"
+
+[lib]
+name = "yt_short_clipper_v2_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

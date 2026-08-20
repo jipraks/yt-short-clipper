@@ -1,0 +1,10 @@
+{
+  "identifier": "default",
+  "description": "Base permissions for the app",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:default",
+    "shell:allow-open"
+  ]
+}
