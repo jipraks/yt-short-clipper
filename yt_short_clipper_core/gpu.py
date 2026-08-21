@@ -39,6 +39,24 @@ def _run(cmd: list[str], timeout: int = 5) -> subprocess.CompletedProcess | None
         return None
 
 
+def _normalize_gpu_name(name: str) -> str:
+    """Strip trademark noise so keyword matching is reliable.
+
+    WMI reports iGPUs as "Intel(R) HD Graphics 520" and "AMD Radeon(TM)
+    Graphics", so a literal "Intel HD" keyword never matches and every
+    Intel integrated GPU looked like "No GPU detected". Drop (R)/(TM)/(C)
+    and the ®/™ glyphs, then collapse the leftover whitespace.
+    """
+    cleaned = re.sub(r"\((?:R|TM|C)\)|[®™]", " ", name, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _matches(name: str, keywords: tuple[str, ...]) -> bool:
+    """Case-insensitive keyword match against a trademark-stripped GPU name."""
+    haystack = _normalize_gpu_name(name).casefold()
+    return any(k.casefold() in haystack for k in keywords)
+
+
 def _windows_video_controllers() -> list[str]:
     result = _run(
         [
@@ -61,7 +79,7 @@ def _detect_nvidia() -> dict:
 
     if sys.platform == "win32":
         for line in _windows_video_controllers():
-            if any(k in line for k in ("NVIDIA", "GeForce", "Quadro", "RTX", "GTX")):
+            if _matches(line, ("NVIDIA", "GeForce", "Quadro", "RTX", "GTX")):
                 return {"type": "nvidia", "name": line, "available": True}
 
     return {"type": None, "name": "", "available": False}
@@ -70,13 +88,13 @@ def _detect_nvidia() -> dict:
 def _detect_from_controllers(keywords: tuple[str, ...], gpu_type: str) -> dict:
     if sys.platform == "win32":
         for line in _windows_video_controllers():
-            if any(k in line for k in keywords):
+            if _matches(line, keywords):
                 return {"type": gpu_type, "name": line, "available": True}
     elif sys.platform.startswith("linux"):
         result = _run(["lspci"])
         if result and result.returncode == 0:
             for line in result.stdout.splitlines():
-                if "VGA" in line and any(k in line for k in keywords):
+                if "VGA" in line and _matches(line, keywords):
                     match = re.search(r":\s*(.+)$", line)
                     if match:
                         return {"type": gpu_type, "name": match.group(1).strip(), "available": True}
@@ -101,7 +119,17 @@ def _detect_gpu_hardware() -> dict:
     for detector in (
         _detect_nvidia,
         lambda: _detect_from_controllers(("AMD", "Radeon"), "amd"),
-        lambda: _detect_from_controllers(("Intel HD", "Intel UHD", "Iris", "Arc"), "intel"),
+        lambda: _detect_from_controllers(
+            (
+                "Intel HD",
+                "Intel UHD",
+                "Intel Graphics",
+                "Intel Corporation",  # lspci wording on Linux
+                "Iris",
+                "Arc",
+            ),
+            "intel",
+        ),
         _detect_apple,
     ):
         info = detector()
@@ -136,6 +164,12 @@ def _probe_encoder(ffmpeg_path: str, encoder_name: str, timeout: int = 20) -> tu
     compiled *into* FFmpeg — not that it can actually initialise on this GPU
     at runtime. Running a single-frame encode is the only reliable check.
 
+    The probe frame must stay above every vendor's minimum encode dimensions.
+    AMF in particular refuses anything smaller than ~128x128 and fails with
+    AVERROR_BUG, which used to make a working Radeon encoder look broken and
+    pushed every render onto libx264. 320x240 clears all vendor minimums and
+    still encodes instantly.
+
     Returns (ok, error_snippet).
     """
     import tempfile
@@ -146,7 +180,7 @@ def _probe_encoder(ffmpeg_path: str, encoder_name: str, timeout: int = 20) -> tu
         result = subprocess.run(
             [
                 ffmpeg_path, "-y", "-hide_banner", "-f", "lavfi",
-                "-i", "color=black:s=64x64:d=0.04",
+                "-i", "color=black:s=320x240:d=0.04",
                 "-frames:v", "1",
                 "-c:v", encoder_name,
                 out_path,
@@ -158,8 +192,8 @@ def _probe_encoder(ffmpeg_path: str, encoder_name: str, timeout: int = 20) -> tu
         )
         if result.returncode == 0:
             return True, None
-        snippet = (result.stderr or "").strip().splitlines()
-        snippet_str = "\n".join(snippet[-8:]) if snippet else f"exit code {result.returncode}"
+        lines = [ln.strip() for ln in (result.stderr or "").splitlines() if ln.strip()]
+        snippet_str = " | ".join(lines[-3:]) if lines else f"exit code {result.returncode}"
         return False, snippet_str
     except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as e:
         return False, str(e)
