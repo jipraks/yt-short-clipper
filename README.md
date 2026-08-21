@@ -180,6 +180,19 @@ the server can use it. Responses are validated (https-only URLs, capped count an
 length, bad entries dropped individually), cached, and fall back to
 `DEFAULT_MENU_ITEMS` in [`src/hooks/menu.ts`](src/hooks/menu.ts) when offline.
 
+## Sponsors
+
+### AI Provider Sponsor
+
+<a href="https://www.apismart.ai">
+  <img src=".github/assets/sponsors/apismart.png" alt="ApiSmart" height="60">
+</a>
+
+### Become a sponsor
+
+Interested in sponsoring this project? Reach out at
+[sponsorship@ytclip.org](mailto:sponsorship@ytclip.org).
+
 ## Legal
 
 This tool automates downloading and re-cutting YouTube videos. Only use it on content you
