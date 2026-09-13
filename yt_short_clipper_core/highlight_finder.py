@@ -169,8 +169,15 @@ def find_highlights(
     client = OpenAI(
         api_key=api_key,
         base_url=base_url,
-        timeout=180.0,
-        max_retries=4,
+        # Transcripts routinely run 100k+ chars (~30k tokens). On local /
+        # mid-size models a single highlight pass can take several minutes,
+        # and the old 180s cap made every heavy video fail after ~15 min of
+        # futile retries (log showed exactly 02:23:50 -> 02:38:58). 900s per
+        # attempt clears even the slowest single-pass generations; 2 retries
+        # still cover transient connection drops without multiplying wall
+        # time into the tens of minutes.
+        timeout=900.0,
+        max_retries=2,
     )
     log(f"Finding highlights using {model} at {base_url} (temperature {temperature})")
 
