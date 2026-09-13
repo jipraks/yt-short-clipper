@@ -14,6 +14,8 @@ Pillow>=10.0.0
 
 # MediaPipe face tracking
 mediapipe>=0.10.0
+# MediaPipe Tasks imports matplotlib at module level (drawing_utils)
+matplotlib>=3.8.0
 
 # HTTP requests (Whisper API, Repliz API)
 requests>=2.31.0

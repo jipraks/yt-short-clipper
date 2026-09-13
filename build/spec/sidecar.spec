@@ -79,7 +79,6 @@ a = Analysis(
         'pandas',
         'scipy',
         'sklearn',
-        'matplotlib',
         'numba',
         'llvmlite',
         'onnxruntime',
