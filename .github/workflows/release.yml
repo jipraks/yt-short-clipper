@@ -1,0 +1,123 @@
+name: build-release
+
+# Builds the Windows desktop app (Tauri + Python sidecar) on a Windows
+# runner and publishes the portable + update zips to a GitHub Release.
+#
+# Triggers:
+#   - push a tag like v2.0.7-beta  -> builds & publishes that version
+#   - manual run (workflow_dispatch) with a version input -> test build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label (e.g. 2.0.7-beta). Leave empty to use the tag."
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version label
+        id: version
+        shell: pwsh
+        run: |
+          $v = "${{ github.event.inputs.version }}".Trim()
+          if (-not $v) {
+            $tag = "${{ github.ref_name }}"
+            if ($tag.StartsWith("v")) { $tag = $tag.Substring(1) }
+            $v = $tag
+          }
+          if (-not $v) { $v = "2.0.7-beta" }
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies (sidecar)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Fetch bundled ffmpeg + deno
+        run: npm run deps
+
+      - name: Download MediaPipe face_landmarker model
+        shell: pwsh
+        run: |
+          $dir = "src-tauri\binaries\models"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $f = Join-Path $dir "face_landmarker.task"
+          if (-not (Test-Path -LiteralPath $f) -or (Get-Item $f).Length -lt 1000000) {
+            Invoke-WebRequest -Uri "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task" -OutFile $f
+          }
+          Get-Item $f | Select-Object Length
+
+      - name: Build Python sidecar (PyInstaller)
+        shell: pwsh
+        run: |
+          python -m PyInstaller --clean --noconfirm `
+            --distpath "src-tauri\binaries" `
+            --workpath "build\sidecar" `
+            "build\spec\sidecar.spec"
+          Get-ChildItem "src-tauri\binaries\ytclip-sidecar-*.exe" | Select-Object Name, Length
+
+      - name: Build frontend (Vite)
+        run: npm run build
+
+      - name: Build Tauri app + bundle
+        run: npm run tauri build
+
+      - name: Package portable zips
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts/package-portable.ps1 -Version "${{ steps.version.outputs.VERSION }}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ytsc-portable
+          path: |
+            src-tauri/target/release/bundle/*.zip
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $tag = "v$version"
+          $portable  = "src-tauri\target\release\bundle\YTShortClipperV2_${version}_x64_portable.zip"
+          $update    = "src-tauri\target\release\bundle\YTShortClipperV2_${version}_x64_update.zip"
+          $notes = "Test release with GPU detection fix: robust Intel HD/UHD 615 detection (renamed adapters now always detected), dual-GPU priority NVIDIA > AMD > Intel, QSV probe retry with explicit hw init, Linux lspci scans 3D/Display controller lines."
+          # Allow re-running the same tag: drop old release + tag first
+          gh release view $tag --json tagName -q .tagName 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release delete $tag --yes --cleanup-tag
+          }
+          gh release create $tag $portable $update `
+            --title "YT Short Clipper $version (test build)" `
+            --notes $notes
