@@ -174,10 +174,19 @@ class _YTDlpLogger:
     of a silent hang at "FFmpeg path resolved: ...".
     """
 
-    def __init__(self, log: LogFn) -> None:
+    def __init__(self, log: LogFn, state: dict | None = None) -> None:
         self._log = log
+        self._state = state
 
     def debug(self, msg: str) -> None:
+        # When yt-dlp starts fetching m3u8 manifests or fragments, extraction
+        # is DONE and the download phase has begun.  Signal the watchdog so
+        # it doesn't fire during slow CDN connections (>90s on throttled
+        # Indonesian links).
+        if self._state is not None and (
+            "Downloading m3u8" in msg or "Downloading item" in msg
+        ):
+            self._state["download_phase_active"] = True
         # yt-dlp's debug channel is extremely noisy (per-fragment bytes),
         # so we only surface the lines that hint at *what* yt-dlp is doing
         # right now, not the byte counters. "Downloading fragment" is
@@ -311,7 +320,7 @@ def _download_section_module(
         ),
         "force_keyframes_at_cuts": True,
         "cookiefile": cookies_path,
-        "logger": _YTDlpLogger(log),
+        "logger": _YTDlpLogger(log, download_state),
         "progress_hooks": [
             lambda d: _yt_dlp_progress_hook(d, log)
         ],
@@ -346,6 +355,7 @@ def _download_section_module(
         "last_pct": None,
         "last_detail": "",
         "first_activity_ts": None,
+        "download_phase_active": False,  # set by _YTDlpLogger when m3u8/frag seen
     }
 
     def _hook_with_heartbeat(d: dict) -> None:
@@ -407,7 +417,8 @@ def _download_section_module(
         """Monitor for stalled extraction; set _abort when too long with no activity."""
         while not _abort.wait(15):
             first = download_state.get("first_activity_ts")
-            if first is not None:
+            dl_active = download_state.get("download_phase_active", False)
+            if first is not None or dl_active:
                 return  # extraction finished — download started
             elapsed = int(time.monotonic() - _download_start)
             if elapsed >= _EXTRACT_ABORT:
@@ -490,6 +501,7 @@ def _download_section_module(
         download_state["last_log_ts"] = time.monotonic()
         download_state["last_pct"] = None
         download_state["last_detail"] = "(fallback retry)"
+        download_state["download_phase_active"] = False
         # Reset watchdog for the fallback attempt
         _abort.clear()
         download_state["first_activity_ts"] = None
