@@ -299,7 +299,7 @@ def _download_section_module(
         # stream info directly without any JavaScript challenge.
         "extractor_args": {
             "youtube": {
-                "player_client": ["visionos,ios,android,tv_downgraded"],
+                "player_client": ["visionos", "ios", "android", "tv_downgraded"],
                 "player_skip": ["js"],
             },
         },
