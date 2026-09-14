@@ -233,9 +233,11 @@ def _download_section_module(
         "no_warnings": False,
         "hls_prefer_native": True,
         "concurrent_fragment_downloads": 1,
-        "socket_timeout": 30,
-        "retries": 5,
-        "fragment_retries": 5,
+        # Fail fast on dead connections (ISP NAT drops, throttled YouTube):
+        "socket_timeout": 15,
+        "retries": 2,
+        "fragment_retries": 2,
+        "extractor_retries": 1,
         "download_ranges": yt_dlp.utils.download_range_func(
             None, [(_parse_timestamp(start_time), _parse_timestamp(end_time))]
         ),
@@ -271,11 +273,14 @@ def _download_section_module(
         "last_log_ts": time.monotonic(),
         "last_pct": None,
         "last_detail": "",
+        "first_activity_ts": None,
     }
 
     def _hook_with_heartbeat(d: dict) -> None:
         # Update heartbeat timestamp whenever yt-dlp reports activity
         download_state["last_log_ts"] = time.monotonic()
+        if download_state["first_activity_ts"] is None:
+            download_state["first_activity_ts"] = time.monotonic()
         if d.get("status") == "downloading":
             pct, detail = _extract_progress(d)
             if pct is not None:
@@ -296,13 +301,24 @@ def _download_section_module(
             since_last_log = int(time.monotonic() - download_state["last_log_ts"])
             pct = download_state["last_pct"]
             detail = download_state["last_detail"]
-            if pct is not None:
+            first = download_state["first_activity_ts"]
+            if first is None:
+                log(
+                    f"⏳ Preparing download... {elapsed}s elapsed "
+                    "(fetching stream info / connecting). Can take a while on slow networks."
+                )
+            elif pct is not None:
                 log(f"⏳ Still downloading: {pct}% ({detail}), {elapsed}s elapsed")
             elif detail:
                 log(f"⏳ Still downloading: {detail}, {elapsed}s elapsed (no progress % yet)")
+            elif since_last_log > 120:
+                log(
+                    f"⚠️ Download appears stalled — no data for {since_last_log}s. "
+                    "If the connection is dead, the app will retry automatically with a simpler method."
+                )
             else:
                 log(
-                    f"⏳ Still waiting for download data... {elapsed}s elapsed, "
+                    f"⏳ Waiting for download data... {elapsed}s elapsed, "
                     f"{since_last_log}s since last activity"
                 )
 
@@ -321,48 +337,48 @@ def _download_section_module(
                 "Please export fresh cookies while logged into YouTube."
             )
 
-        # Retry with fallback: simple format, no download_ranges
-        if "ffmpeg" in msg.lower():
-            log("Retrying with fallback options (simple format + no ranges)...")
-            fallback_opts = dict(ydl_opts)
-            fallback_opts.pop("download_ranges", None)
-            fallback_opts.pop("force_keyframes_at_cuts", None)
-            fallback_opts["format"] = "best[height>=720][height<=2160]/bestvideo+bestaudio/best"
-            download_state["last_log_ts"] = time.monotonic()
-            download_state["last_pct"] = None
-            download_state["last_detail"] = "(fallback retry)"
-            try:
-                with yt_dlp.YoutubeDL(fallback_opts) as ydl:
-                    ydl.download([url])
-            except Exception as e2:
-                msg2 = str(e2)
-                log(f"Fallback download also failed: {msg2[:200]}")
-                raise RuntimeError(f"Failed to download video section: {msg2}")
+        # Retry with fallback on ANY failure (dead connection, HLS range quirk, etc.):
+        # simple format + no download_ranges (full video, cut locally with ffmpeg).
+        log("Retrying with fallback options (simple format + no ranges)...")
+        fallback_opts = dict(ydl_opts)
+        fallback_opts.pop("download_ranges", None)
+        fallback_opts.pop("force_keyframes_at_cuts", None)
+        fallback_opts["format"] = "best[height>=720][height<=2160]/bestvideo+bestaudio/best"
+        download_state["last_log_ts"] = time.monotonic()
+        download_state["last_pct"] = None
+        download_state["last_detail"] = "(fallback retry)"
+        try:
+            with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                ydl.download([url])
+        except Exception as e2:
+            msg2 = str(e2)
+            log(f"Fallback download also failed: {msg2[:200]}")
+            raise RuntimeError(f"Failed to download video section: {msg2}")
 
-            # Manually cut with ffmpeg since we downloaded the full video
-            stop_evt.set()
-            log("Cutting downloaded video to requested section...")
-            cut_output = output_path + ".cut.mp4"
-            full_path = _find_downloaded_file(output_path)
-            ffmpeg_path = get_ffmpeg_path()
-            cut_cmd = [
-                str(ffmpeg_path), "-y",
-                "-ss", start_time,
-                "-to", end_time,
-                "-i", full_path,
-                "-c", "copy",
-                "-avoid_negative_ts", "make_zero",
-                str(cut_output),
-            ]
-            import subprocess
-            import sys
-            flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            result = subprocess.run(cut_cmd, capture_output=True, text=True, creationflags=flags)
-            if result.returncode != 0:
-                raise RuntimeError(f"Failed to cut video section with ffmpeg: {result.stderr[:500]}")
-            import shutil
-            shutil.move(cut_output, output_path)
-            return output_path
+        # Manually cut with ffmpeg since we downloaded the full video
+        stop_evt.set()
+        log("Cutting downloaded video to requested section...")
+        cut_output = output_path + ".cut.mp4"
+        full_path = _find_downloaded_file(output_path)
+        ffmpeg_path = get_ffmpeg_path()
+        cut_cmd = [
+            str(ffmpeg_path), "-y",
+            "-ss", start_time,
+            "-to", end_time,
+            "-i", full_path,
+            "-c", "copy",
+            "-avoid_negative_ts", "make_zero",
+            str(cut_output),
+        ]
+        import subprocess
+        import sys
+        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        result = subprocess.run(cut_cmd, capture_output=True, text=True, creationflags=flags)
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to cut video section with ffmpeg: {result.stderr[:500]}")
+        import shutil
+        shutil.move(cut_output, output_path)
+        return output_path
 
         raise RuntimeError(f"Failed to download video section: {msg}")
     finally:

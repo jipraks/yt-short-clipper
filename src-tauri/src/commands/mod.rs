@@ -406,6 +406,8 @@ pub fn list_hook_fonts(app: tauri::AppHandle) -> Result<Vec<HookFontInfo>, Strin
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
             candidates.push(exe_dir.join("fonts"));
+            // resources subfolder beside the exe (portable/installer layouts)
+            candidates.push(exe_dir.join("resources").join("fonts"));
             if let Some(parent) = exe_dir.parent() {
                 candidates.push(parent.join("fonts"));
                 // resources subfolder (portable/most installers)
