@@ -234,10 +234,13 @@ def _download_section_module(
         "hls_prefer_native": True,
         "concurrent_fragment_downloads": 1,
         # Fail fast on dead connections (ISP NAT drops, throttled YouTube):
-        "socket_timeout": 15,
-        "retries": 2,
-        "fragment_retries": 2,
-        "extractor_retries": 1,
+        "socket_timeout": 10,
+        "retries": 3,
+        "fragment_retries": 3,
+        "extractor_retries": 2,
+        # Overall extraction timeout (seconds). yt-dlp hangs here if YouTube
+        # blocks or the connection silently dies mid-handshake.
+        "extractor_timeout": 30,
         "download_ranges": yt_dlp.utils.download_range_func(
             None, [(_parse_timestamp(start_time), _parse_timestamp(end_time))]
         ),
@@ -325,9 +328,48 @@ def _download_section_module(
     hb_thread = threading.Thread(target=heartbeat, daemon=True, name="yt-dlp-heartbeat")
     hb_thread.start()
 
+    # --- Extraction watchdog ---
+    # If yt-dlp never calls the progress hook (extraction stuck), abort after
+    # _EXTRACT_ABORT seconds so the app doesn't hang forever.
+    _EXTRACT_ABORT = 180  # 3 minutes
+    _abort = threading.Event()
+
+    def _extraction_watchdog() -> None:
+        """Monitor for stalled extraction; set _abort when too long with no activity."""
+        while not _abort.wait(15):
+            first = download_state.get("first_activity_ts")
+            if first is not None:
+                return  # extraction finished — download started
+            elapsed = int(time.monotonic() - _download_start)
+            if elapsed >= _EXTRACT_ABORT:
+                log(
+                    f"⚠️ Extraction stuck for {elapsed}s with no response — "
+                    "aborting and retrying with fallback options..."
+                )
+                _abort.set()
+                return
+
+    _download_start = time.monotonic()
+    _watchdog = threading.Thread(target=_extraction_watchdog, daemon=True, name="yt-dlp-watchdog")
+    _watchdog.start()
+
+    def _run_download(ydl_opts_local: dict, label: str) -> None:
+        """Run yt-dlp download in a thread, aborting if watchdog fires."""
+        dl_thread = threading.Thread(
+            target=lambda: yt_dlp.YoutubeDL(ydl_opts_local).download([url]),
+            daemon=True, name=f"yt-dlp-dl-{label}",
+        )
+        dl_thread.start()
+        while dl_thread.is_alive():
+            if _abort.is_set():
+                raise RuntimeError(
+                    f"Download ({label}) aborted: extraction timed out after "
+                    f"{_EXTRACT_ABORT}s with no activity. Check your network or try again."
+                )
+            dl_thread.join(timeout=5)
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+        _run_download(ydl_opts, "primary")
     except Exception as e:
         msg = str(e)
         log(f"Section download failed: {msg[:200]}")
@@ -347,9 +389,15 @@ def _download_section_module(
         download_state["last_log_ts"] = time.monotonic()
         download_state["last_pct"] = None
         download_state["last_detail"] = "(fallback retry)"
+        # Reset watchdog for the fallback attempt
+        _abort.clear()
+        download_state["first_activity_ts"] = None
+        _watchdog_fallback = threading.Thread(
+            target=_extraction_watchdog, daemon=True, name="yt-dlp-watchdog-fallback"
+        )
+        _watchdog_fallback.start()
         try:
-            with yt_dlp.YoutubeDL(fallback_opts) as ydl:
-                ydl.download([url])
+            _run_download(fallback_opts, "fallback")
         except Exception as e2:
             msg2 = str(e2)
             log(f"Fallback download also failed: {msg2[:200]}")
