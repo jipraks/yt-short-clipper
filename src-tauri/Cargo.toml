@@ -1,6 +1,6 @@
 [package]
 name = "yt-short-clipper-v2"
-version = "2.0.22"
+version = "2.0.23"
 description = "YT Short Clipper v2"
 authors = ["jipraks"]
 edition = "2021"

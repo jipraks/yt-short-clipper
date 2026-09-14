@@ -11,6 +11,7 @@ Response:
 """
 
 import json
+import os
 import sys
 import threading
 import time
@@ -20,6 +21,22 @@ from typing import Any
 
 class SidecarError(Exception):
     pass
+
+
+def _stdout():
+    """Return a writable binary stdout, even in PyInstaller windowed mode.
+
+    PyInstaller with console=False sets sys.stdout to None on Windows; the
+    parent Rust process still passes a pipe on fd 1, so open that directly.
+    We keep one wrapper open for the lifetime of the process (fdopen'd
+    handles must not be garbage-collected between writes).
+    """
+    if sys.stdout is not None:
+        return sys.stdout.buffer
+    _stdout._stream = getattr(_stdout, "_stream", None)
+    if _stdout._stream is None:
+        _stdout._stream = os.fdopen(1, "wb", buffering=0)
+    return _stdout._stream
 
 
 def _session_output_language(session_dir: Any) -> str:
@@ -306,18 +323,14 @@ def write_json(obj: dict[str, Any]) -> None:
         raw = json.dumps(obj, ensure_ascii=False)
         data = raw.encode("utf-8") + b"\n"
         with _io_lock:
-            sys.stdout.buffer.write(data)
-            sys.stdout.buffer.flush()
+            _stdout().write(data)
+            _stdout().flush()
     except OSError:
         # stdout pipe is dead/broken (parent closed it, buffer overflow,
         # console teardown). Fall back to stderr; if that fails too, drop.
-        try:
-            sys.stderr.buffer.write(
-                ("[sidecar:stdout-broken] " + json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
-            )
-            sys.stderr.buffer.flush()
-        except OSError:
-            pass
+        _safe_stderr_write(
+            "[sidecar:stdout-broken] " + json.dumps(obj, ensure_ascii=False) + "\n"
+        )
     except Exception:
         # json serialization edge cases / anything else — never kill the loop
         pass
@@ -329,8 +342,13 @@ _rate_limiter: dict = {"count": 0, "dropped": 0, "window_start": 0.0}
 
 def _safe_stderr_write(msg: str) -> None:
     try:
-        sys.stderr.buffer.write(msg.encode("utf-8"))
-        sys.stderr.buffer.flush()
+        if sys.stderr is None:
+            with os.fdopen(2, "w", encoding="utf-8", errors="replace") as f:
+                f.write(msg)
+                f.flush()
+        else:
+            sys.stderr.buffer.write(msg.encode("utf-8"))
+            sys.stderr.buffer.flush()
     except OSError:
         pass
 
@@ -341,12 +359,19 @@ def run_loop() -> None:
     # file descriptor directly so the stdin protocol still works.
     if sys.stdin is None:
         import io as _io
-        import os as _os
-        _raw_stdin = _io.TextIOWrapper(
-            _os.fdopen(0, "rb", buffering=0),
-            encoding="utf-8",
-            line_buffering=True,
-        )
+
+        try:
+            _raw_stdin = _io.TextIOWrapper(
+                os.fdopen(0, "rb", buffering=0),
+                encoding="utf-8",
+                line_buffering=True,
+            )
+        except OSError:
+            # No pipe on fd 0 at all (sidecar launched standalone, e.g. by
+            # double-clicking the exe).  There is nothing to read; exit
+            # quietly instead of raising a confusing traceback.
+            _safe_stderr_write("[sidecar] no stdin available — exiting\n")
+            return
     else:
         _raw_stdin = sys.stdin
 
@@ -362,7 +387,7 @@ def run_loop() -> None:
             result = handle_request(request)
             write_json(make_response(request_id, True, result=result))
         except Exception as e:
-            print(traceback.format_exc(), file=sys.stderr, flush=True)
+            _safe_stderr_write(traceback.format_exc())
             write_json(make_response(request_id, False, error=str(e)))
 
 
