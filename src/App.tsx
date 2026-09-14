@@ -16,7 +16,7 @@ import { ClipDetailPage } from "@/pages/ClipDetailPage";
 import { ReplizSettingsPage } from "@/pages/ReplizSettingsPage";
 import { CreditsPage } from "@/pages/CreditsPage";
 import { UpdateDialog } from "@/components/UpdateDialog";
-import { NotificationDialog } from "@/components/NotificationDialog";
+import { NotificationDialog, notificationDismissed } from "@/components/NotificationDialog";
 import { checkForUpdate, type LatestVersionResponse } from "@/hooks/versionCheck";
 import { checkNotification, type NotificationResponse } from "@/hooks/notificationCheck";
 import { useAppStore } from "@/stores/appStore";
@@ -35,7 +35,7 @@ function App() {
     });
 
     checkNotification().then((result) => {
-      if (result) setNotification(result);
+      if (result && !notificationDismissed(result)) setNotification(result);
     });
   }, []);
 
