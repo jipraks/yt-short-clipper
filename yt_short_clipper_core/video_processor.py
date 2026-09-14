@@ -127,13 +127,40 @@ def _yt_dlp_progress_hook(d: dict, log: LogFn) -> None:
         _progress_hook_state["last_pct"] = pct
         suffix = f" ({detail})" if detail else ""
         log(f"Download progress: {pct}%{suffix}")
+        _maybe_warn_throttled(d, log)
     elif detail:
         log(f"Download progress: {detail}")
     else:
         log("Download progress: starting...")
 
 
-_progress_hook_state: dict = {"last_ts": 0.0, "last_pct": None}
+def _maybe_warn_throttled(d: dict, log: LogFn) -> None:
+    """Warn once per download when YouTube is throttling the connection.
+
+    Speed < ~100 KiB/s sustained is NOT a normal slow network — it is
+    YouTube's deliberate per-connection cap for non-browser clients (or a
+    missing cookies.txt). We surface it once so the user knows what's going
+    on instead of watching a crawling percentage.
+    """
+    speed = d.get("speed")
+    if not speed:
+        return
+    kiB_s = speed / 1024.0
+    if kiB_s >= 100:
+        return  # healthy speed
+    now = time.monotonic()
+    if _progress_hook_state.get("throttle_warned_ts", 0.0) and now - _progress_hook_state["throttle_warned_ts"] < 60:
+        return  # already warned recently
+    _progress_hook_state["throttle_warned_ts"] = now
+    log(
+        f"⚠️ YouTube throttling detected: only {kiB_s:.0f} KiB/s. This is "
+        "YouTube's per-connection cap for non-browser clients, not your "
+        "network. Mitigations active: parallel fragments (×8). Adding a "
+        "cookies.txt from a logged-in YouTube session usually removes the cap."
+    )
+
+
+_progress_hook_state: dict = {"last_ts": 0.0, "last_pct": None, "throttle_warned_ts": 0.0}
 
 
 class _YTDlpLogger:
@@ -253,7 +280,10 @@ def _download_section_module(
         "quiet": True,
         "no_warnings": False,
         "hls_prefer_native": True,
-        "concurrent_fragment_downloads": 1,
+        # Parallel fragment connections: YouTube throttles non-browser
+        # clients per-connection (~a few hundred B/s). Browsers open many
+        # parallel connections; we mimic that to bypass the per-connection cap.
+        "concurrent_fragment_downloads": 8,
         # Fail fast on dead connections (ISP NAT drops, throttled YouTube):
         "socket_timeout": 10,
         "retries": 3,
@@ -426,11 +456,19 @@ def _download_section_module(
 
         # Retry with fallback on ANY failure (dead connection, HLS range quirk, etc.):
         # simple format + no download_ranges (full video, cut locally with ffmpeg).
+        # IMPORTANT: keep the SAME avc1-1080p preference as the primary — on a
+        # throttled link, picking 2160p VP9 (the generic "best" fallback) turns
+        # a 60 MB download into a 200 MB one and effectively never finishes.
         log("Retrying with fallback options (simple format + no ranges)...")
         fallback_opts = dict(ydl_opts)
         fallback_opts.pop("download_ranges", None)
         fallback_opts.pop("force_keyframes_at_cuts", None)
-        fallback_opts["format"] = "best[height>=720][height<=2160]/bestvideo+bestaudio/best"
+        fallback_opts["format"] = (
+            "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+            "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/"
+            "bestvideo[height<=1080]+bestaudio/"
+            "best[height<=1080]/best"
+        )
         download_state["last_log_ts"] = time.monotonic()
         download_state["last_pct"] = None
         download_state["last_detail"] = "(fallback retry)"
