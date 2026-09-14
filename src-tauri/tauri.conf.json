@@ -1,6 +1,6 @@
 {
   "productName": "YTShortClipperV2",
-  "version": "2.0.12",
+  "version": "2.0.13",
   "identifier": "com.jipraks.ytshortclipper-v2",
   "build": {
     "frontendDist": "../dist",
@@ -38,7 +38,8 @@
     "resources": {
       "binaries/ffmpeg/ffmpeg.exe": "ffmpeg/ffmpeg.exe",
       "binaries/bin/deno.exe": "bin/deno.exe",
-      "binaries/models/face_landmarker.task": "models/face_landmarker.task"
+      "binaries/models/face_landmarker.task": "models/face_landmarker.task",
+      "fonts/*": "fonts/"
     },
     "targets": "all",
     "windows": {

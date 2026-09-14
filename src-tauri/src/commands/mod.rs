@@ -408,6 +408,8 @@ pub fn list_hook_fonts(app: tauri::AppHandle) -> Result<Vec<HookFontInfo>, Strin
             candidates.push(exe_dir.join("fonts"));
             if let Some(parent) = exe_dir.parent() {
                 candidates.push(parent.join("fonts"));
+                // resources subfolder (portable/most installers)
+                candidates.push(parent.join("resources").join("fonts"));
             }
         }
     }
