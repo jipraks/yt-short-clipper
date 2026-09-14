@@ -289,6 +289,20 @@ def _download_section_module(
         "retries": 3,
         "fragment_retries": 3,
         "extractor_retries": 2,
+        # CRITICAL (2026-09): force player clients that do NOT require the
+        # BotGuard JS challenge. The defaults for authenticated sessions are
+        # ('tv_downgraded', 'web') — the 'web' client needs a po_token and
+        # a JS runtime, and yt-dlp lazily downloads the 'ejs' challenge
+        # component from GitHub to solve it. On networks where GitHub is
+        # slow/blocked (common in Indonesia), extraction HANGS forever after
+        # "Downloading webpage" with no error. visionos/ios/android return
+        # stream info directly without any JavaScript challenge.
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["visionos,ios,android,tv_downgraded"],
+                "player_skip": ["js"],
+            },
+        },
         # Overall extraction timeout (seconds). yt-dlp hangs here if YouTube
         # blocks or the connection silently dies mid-handshake.
         "extractor_timeout": 30,
@@ -306,7 +320,11 @@ def _download_section_module(
     deno_path = get_deno_path()
     if deno_path and Path(deno_path).exists():
         ydl_opts["js_runtimes"] = {"deno": {"path": deno_path}}
-        ydl_opts["remote_components"] = ["ejs:github"]
+        # NOTE: deliberately NOT setting remote_components=["ejs:github"] —
+        # yt-dlp lazily fetches the ejs challenge solver from GitHub at
+        # runtime, which can HANG extraction on slow/blocked networks. We
+        # force JS-less player clients instead (see extractor_args above),
+        # so the ejs solver is never needed.
 
     if ffmpeg_path and Path(ffmpeg_path).exists():
         ffmpeg_dir = str(Path(ffmpeg_path).parent)
@@ -382,7 +400,7 @@ def _download_section_module(
     # --- Extraction watchdog ---
     # If yt-dlp never calls the progress hook (extraction stuck), abort after
     # _EXTRACT_ABORT seconds so the app doesn't hang forever.
-    _EXTRACT_ABORT = 180  # 3 minutes
+    _EXTRACT_ABORT = 90  # 90s: extraction normally takes <15s with JS-less clients
     _abort = threading.Event()
 
     def _extraction_watchdog() -> None:
