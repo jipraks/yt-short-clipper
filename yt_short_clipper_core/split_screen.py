@@ -7,6 +7,7 @@ matching the app's gold accent (#fbbf24).
 Uses ffmpeg ``vstack`` — the same filter proven in the split-screen spike.
 """
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,42 +29,47 @@ DIVIDER_PX = 6
 DIVIDER_COLOR = "0xFBBF24"  # gold #fbbf24
 
 
-def _ffprobe_path() -> str:
-    """ffprobe usually sits next to ffmpeg; fall back to PATH."""
-    ffmpeg = Path(get_ffmpeg_path())
-    exe_name = "ffprobe.exe" if sys.platform.startswith("win") else "ffprobe"
-    sibling = ffmpeg.parent / exe_name
-    if sibling.exists():
-        return str(sibling)
-    import shutil
+# Media probe cache: probe each file once per process.
+_probe_cache: dict[str, tuple[float, bool]] = {}
 
-    return shutil.which("ffprobe") or "ffprobe"
+
+def _probe_media(video_path: str) -> tuple[float, bool]:
+    """Return ``(duration_seconds, has_audio)`` using only the bundled ffmpeg.
+
+    ffprobe is NOT shipped in the portable bundle, so we parse ffmpeg's
+    ``-i`` stderr instead (the classic no-ffprobe trick). ffmpeg exits
+    non-zero here because we give it no output file — that is expected, so
+    only stderr is parsed.
+    """
+    cached = _probe_cache.get(video_path)
+    if cached is not None:
+        return cached
+
+    ffmpeg = Path(get_ffmpeg_path())
+    cmd = [str(ffmpeg), "-hide_banner", "-i", video_path]
+    result = subprocess.run(cmd, capture_output=True, text=True, creationflags=_SUBPROCESS_FLAGS)
+    stderr = result.stderr or ""
+
+    duration = 0.0
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
+    if m:
+        h, mi, s = m.groups()
+        duration = int(h) * 3600 + int(mi) * 60 + float(s)
+
+    has_audio = bool(
+        re.search(r"Stream\s+#\d+:\d+(?:\[[^\]]*\])?(?:\([^)]*\))?:\s*Audio:", stderr)
+    )
+
+    _probe_cache[video_path] = (duration, has_audio)
+    return duration, has_audio
 
 
 def _probe_duration(video_path: str) -> float:
-    """Return media duration in seconds via ffprobe."""
-    cmd = [
-        _ffprobe_path(), "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "csv=p=0", video_path,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, creationflags=_SUBPROCESS_FLAGS)
-    try:
-        return float(result.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        return 0.0
+    return _probe_media(video_path)[0]
 
 
 def _probe_has_audio(video_path: str) -> bool:
-    """True if the file has at least one audio stream."""
-    cmd = [
-        _ffprobe_path(), "-v", "error",
-        "-select_streams", "a",
-        "-show_entries", "stream=codec_type",
-        "-of", "csv=p=0", video_path,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, creationflags=_SUBPROCESS_FLAGS)
-    return "audio" in result.stdout
+    return _probe_media(video_path)[1]
 
 
 def combine_split_screen(
