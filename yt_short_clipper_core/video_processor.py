@@ -281,6 +281,14 @@ def _download_section_module(
         "best[height<=1080]/best"
     )
 
+    download_state = {
+        "last_log_ts": time.monotonic(),
+        "last_pct": None,
+        "last_detail": "",
+        "first_activity_ts": None,
+        "download_phase_active": False,  # set by _YTDlpLogger when m3u8/frag seen
+    }
+
     ydl_opts: dict[str, Any] = {
         "format": format_selector,
         "format_sort": ["res", "br"],
@@ -349,14 +357,6 @@ def _download_section_module(
         )
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-
-    download_state = {
-        "last_log_ts": time.monotonic(),
-        "last_pct": None,
-        "last_detail": "",
-        "first_activity_ts": None,
-        "download_phase_active": False,  # set by _YTDlpLogger when m3u8/frag seen
-    }
 
     def _hook_with_heartbeat(d: dict) -> None:
         # Update heartbeat timestamp whenever yt-dlp reports activity
