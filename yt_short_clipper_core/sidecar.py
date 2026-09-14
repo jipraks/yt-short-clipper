@@ -12,6 +12,8 @@ Response:
 
 import json
 import sys
+import threading
+import time
 import traceback
 from typing import Any
 
@@ -274,11 +276,63 @@ def make_response(request_id: Any, ok: bool, result: Any = None, error: str | No
 
 
 def write_json(obj: dict[str, Any]) -> None:
-    # Force UTF-8 to avoid Windows cp1252 encoding errors with Unicode chars
-    raw = json.dumps(obj, ensure_ascii=False)
-    sys.stdout.buffer.write(raw.encode("utf-8"))
-    sys.stdout.buffer.write(b"\n")
-    sys.stdout.buffer.flush()
+    """Write a JSON line to stdout — NEVER raises.
+
+    Windows pitfall #1: yt-dlp progress hooks (per-fragment) can flood this
+    call thousands of times per second; if the parent pipe buffer fills, the
+    write raises OSError EINVAL which — if unhandled inside an exception
+    handler — kills the entire sidecar. So we:
+      * serialize with a lock (yt-dlp worker threads + main thread),
+      * rate-limit (drop excess, count them),
+      * fall back to stderr if stdout is broken.
+    """
+    # Rate limit: max ~30 writes/sec. Dropped logs are counted, not raised.
+    _now = time.monotonic()
+    if _now - _rate_limiter["window_start"] >= 1.0:
+        # new 1-second window
+        _rate_limiter["window_start"] = _now
+        _rate_limiter["count"] = 0
+    if _rate_limiter["count"] >= 30:
+        _rate_limiter["dropped"] += 1
+        # Report the droppage once every ~5s so the user can still see the log is alive
+        if _rate_limiter["dropped"] % 150 == 1:
+            _safe_stderr_write(
+                f"[sidecar] log rate-limited: dropped {_rate_limiter['dropped']} msgs\n"
+            )
+        return
+    _rate_limiter["count"] += 1
+
+    try:
+        raw = json.dumps(obj, ensure_ascii=False)
+        data = raw.encode("utf-8") + b"\n"
+        with _io_lock:
+            sys.stdout.buffer.write(data)
+            sys.stdout.buffer.flush()
+    except OSError:
+        # stdout pipe is dead/broken (parent closed it, buffer overflow,
+        # console teardown). Fall back to stderr; if that fails too, drop.
+        try:
+            sys.stderr.buffer.write(
+                ("[sidecar:stdout-broken] " + json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
+            )
+            sys.stderr.buffer.flush()
+        except OSError:
+            pass
+    except Exception:
+        # json serialization edge cases / anything else — never kill the loop
+        pass
+
+
+_io_lock = threading.Lock()
+_rate_limiter: dict = {"count": 0, "dropped": 0, "window_start": 0.0}
+
+
+def _safe_stderr_write(msg: str) -> None:
+    try:
+        sys.stderr.buffer.write(msg.encode("utf-8"))
+        sys.stderr.buffer.flush()
+    except OSError:
+        pass
 
 
 def run_loop() -> None:

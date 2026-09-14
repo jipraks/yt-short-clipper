@@ -99,22 +99,41 @@ def _yt_dlp_progress_hook(d: dict, log: LogFn) -> None:
     compute the percentage from raw counters (see ``_extract_progress``) and,
     failing that, surface bytes downloaded and speed instead of staying silent
     (silent = looks like a hang to the user).
+
+    Rate-limited: HLS fires this hook per fragment (thousands of times), which
+    would flood the sidecar stdout. We cap at ~1 progress line per second and
+    always pass "finished" through.
     """
     status = d.get("status")
-    if status == "downloading":
-        pct, detail = _extract_progress(d)
-        if pct is not None:
-            suffix = f" ({detail})" if detail else ""
-            log(f"Download progress: {pct}%{suffix}")
-        elif detail:
-            log(f"Download progress: {detail}")
-        else:
-            log("Download progress: starting...")
-    elif status == "finished":
+    if status == "finished":
         total = d.get("_total_bytes_str") or d.get("total_bytes") or ""
         elapsed = d.get("_elapsed_str") or d.get("elapsed") or ""
         tail = f" ({total}, {elapsed})" if (total or elapsed) else ""
         log(f"Download complete, merging...{tail}")
+        return
+
+    if status != "downloading":
+        return
+
+    now = time.monotonic()
+    last = _progress_hook_state.get("last_ts", 0.0)
+    if now - last < 1.0 and _progress_hook_state.get("last_pct") is not None:
+        # suppress duplicate rapid-fire progress lines; heartbeat covers the gap
+        return
+    _progress_hook_state["last_ts"] = now
+
+    pct, detail = _extract_progress(d)
+    if pct is not None:
+        _progress_hook_state["last_pct"] = pct
+        suffix = f" ({detail})" if detail else ""
+        log(f"Download progress: {pct}%{suffix}")
+    elif detail:
+        log(f"Download progress: {detail}")
+    else:
+        log("Download progress: starting...")
+
+
+_progress_hook_state: dict = {"last_ts": 0.0, "last_pct": None}
 
 
 class _YTDlpLogger:
@@ -134,8 +153,10 @@ class _YTDlpLogger:
     def debug(self, msg: str) -> None:
         # yt-dlp's debug channel is extremely noisy (per-fragment bytes),
         # so we only surface the lines that hint at *what* yt-dlp is doing
-        # right now, not the byte counters.
-        if any(k in msg for k in ("Downloading ", "Downloading item ", "[download]", "Extracting", "Downloading fragment", "Resuming", "Merging", "Deleting")):
+        # right now, not the byte counters. "Downloading fragment" is
+        # excluded on purpose — on HLS it fires per fragment (thousands
+        # of times) and would flood the sidecar stdout pipe.
+        if any(k in msg for k in ("Downloading ", "Downloading item ", "[download]", "Extracting", "Resuming", "Merging", "Deleting")):
             self._log(msg)
 
     def info(self, msg: str) -> None:
@@ -368,10 +389,34 @@ def _download_section_module(
                 )
             dl_thread.join(timeout=5)
 
-    try:
-        _run_download(ydl_opts, "primary")
-    except Exception as e:
-        msg = str(e)
+    def _do_download() -> str:
+        """Primary (with WinError-32 retry) → fallback full-download + local cut."""
+        # Retry-on-WinError-32 loop: the final .part → .mp4 rename can fail on
+        # Windows when antivirus / search-indexer briefly locks the file. The
+        # section is small, so re-downloading after a short pause is cheap.
+        e_download: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                _run_download(ydl_opts, f"primary-{attempt}")
+                return _find_downloaded_file(output_path)
+            except Exception as e:
+                e_download = e
+                msg = str(e)
+                rename_locked = (
+                    "Unable to rename file" in msg
+                    or "WinError 32" in msg
+                    or "being used by another process" in msg
+                )
+                if rename_locked and attempt < 3:
+                    log(
+                        f"⚠️ Rename lock (WinError 32) on attempt {attempt}/3 — "
+                        "file busy (antivirus?), retrying in 5s..."
+                    )
+                    time.sleep(5)
+                    continue
+                break  # real failure → fallback path below
+
+        msg = str(e_download)
         log(f"Section download failed: {msg[:200]}")
         if "403" in msg or "Forbidden" in msg:
             raise RuntimeError(
@@ -428,9 +473,10 @@ def _download_section_module(
         shutil.move(cut_output, output_path)
         return output_path
 
-        raise RuntimeError(f"Failed to download video section: {msg}")
+    try:
+        result_path = _do_download()
     finally:
         stop_evt.set()
         hb_thread.join(timeout=2)
 
-    return _find_downloaded_file(output_path)
+    return result_path
