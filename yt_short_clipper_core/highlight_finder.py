@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from typing import Any, Callable
 
 from .constants import SAME_AS_TRANSCRIPT
@@ -111,6 +112,59 @@ def build_direction_reminder(user_direction: str | None) -> str:
     return USER_DIRECTION_REMINDER.replace("{direction}", text) if text else ""
 
 
+def _provider_error_detail(e: Exception) -> str:
+    """Best-effort raw error payload from the provider, for user messages."""
+    body = getattr(e, "body", None)
+    if body:
+        try:
+            return json.dumps(body, ensure_ascii=False)[:600]
+        except Exception:
+            return str(body)[:600]
+    status = getattr(e, "status_code", None)
+    if status:
+        return f"HTTP {status}"
+    return ""
+
+
+def _build_ai_error(e: Exception, model: str) -> RuntimeError:
+    """Build a user-facing RuntimeError with the provider's actual message."""
+    msg = str(e)
+    detail = _provider_error_detail(e)
+    lowered = msg.lower()
+    is_server_issue = (
+        "500" in msg
+        or "internalservererror" in lowered
+        or "connection error" in lowered
+        or "overload" in lowered
+        or "timeout" in lowered
+        or getattr(e, "status_code", None) in (429, 500, 502, 503, 504, 520, 522, 524)
+    )
+    if is_server_issue:
+        text = (
+            "The AI provider returned a server error while processing model "
+            f"'{model}'.\n\n"
+            "This is an upstream/provider issue, not a problem with your input. "
+            "The proxy could not reach the model (no fallback configured).\n\n"
+            "Try:\n"
+            "1. Retry in a moment\n"
+            "2. Switch to a different model in AI Models settings\n"
+            "3. Use a shorter video (this transcript was large)"
+        )
+    else:
+        text = f"AI request failed: {msg}"
+    if detail:
+        text += f"\n\nProvider detail: {detail}"
+    return RuntimeError(text)
+
+
+def _should_retry(e: Exception) -> bool:
+    """True when retrying can plausibly help. Never retry bad-request/auth errors."""
+    status = getattr(e, "status_code", None)
+    if status in (400, 401, 402, 403, 404, 422):
+        return False
+    return True
+
+
 def find_highlights(
     transcript: str,
     video_info: dict[str, Any],
@@ -181,49 +235,62 @@ def find_highlights(
     )
     log(f"Finding highlights using {model} at {base_url} (temperature {temperature})")
 
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-        )
-    except Exception as e:
-        msg = str(e)
-        log(f"AI request failed: {msg[:300]}")
-        if "500" in msg or "InternalServerError" in msg or "Connection error" in msg:
-            raise RuntimeError(
-                "The AI provider returned a server error (HTTP 500) while processing "
-                f"model '{model}'.\n\n"
-                "This is an upstream/provider issue, not a problem with your input. "
-                "The proxy could not reach the model (no fallback configured).\n\n"
-                "Try:\n"
-                "1. Retry in a moment\n"
-                "2. Switch to a different model in AI Models settings\n"
-                "3. Use a shorter video (this transcript was large)\n\n"
-                f"Raw error: {msg}"
+    # Stream the response. Transcripts are large and the gateway (Hermes /
+    # custom OpenAI-compatible server) can take many minutes on a single
+    # pass. A plain non-streamed request that sits idle for 10+ minutes gets
+    # killed by NAT/firewall timeouts and the truncated body comes back
+    # without 'choices' — observed as: request at 08:56:11, "API response
+    # missing 'choices'" at 09:07:08. Streaming keeps the connection active
+    # (hermes gateway sends SSE keep-alives ~every 30s), so long runs
+    # survive. One retry covers transient upstream overloads.
+    response_chunks: list[str] = []
+    usage = None
+    last_error: Exception | None = None
+
+    for attempt in (1, 2):
+        try:
+            stream = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                stream=True,
             )
-        raise RuntimeError(f"AI request failed: {msg}")
+            response_chunks = []
+            usage = None
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                    response_chunks.append(chunk.choices[0].delta.content)
+                if getattr(chunk, "usage", None):
+                    usage = chunk.usage
+            last_error = None
+            break
+        except Exception as e:
+            msg = str(e)
+            log(f"AI request failed: {msg[:300]}")
+            last_error = e
+            if attempt == 1 and _should_retry(e):
+                log("AI provider hiccup — retrying once after a short pause...")
+                time.sleep(8)
+                continue
+            raise _build_ai_error(e, model)
 
-    if not response or not getattr(response, "choices", None):
+    if last_error is None and not response_chunks and not usage:
         raise RuntimeError(
-            "API response missing 'choices'. Check your provider is OpenAI-compatible, "
-            "the API key is valid, and the model name is supported."
+            "The AI returned an empty response. The model may have refused the "
+            "request or your quota is exceeded."
         )
 
-    message = response.choices[0].message
-    if not message or not message.content:
+    result = "".join(response_chunks).strip()
+    if not result:
         raise RuntimeError(
-            "API returned empty content. The model may have refused the request "
-            "or your quota is exceeded."
+            "The AI returned an empty response. The model may have refused the "
+            "request or your quota is exceeded."
         )
 
-    usage = getattr(response, "usage", None)
     token_usage = {
         "prompt_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,
         "completion_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
     }
-
-    result = message.content.strip()
     if result.startswith("```"):
         result = re.sub(r"```json?\n?", "", result)
         result = re.sub(r"```\n?", "", result)
