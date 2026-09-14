@@ -28,6 +28,7 @@ export function ProcessingClipsPage() {
   }
 
   const { url, highlights, sessionDir, options } = state;
+  const isSplitScreen = !!options.splitScreen?.enabled;
   const [logLines, setLogLines] = useState<{ level: string; message: string; ts: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(0); // 0=download, 1=portrait, 2=hook, 3=caption, 4=watermark
@@ -65,7 +66,7 @@ export function ProcessingClipsPage() {
     if (lastLog.includes("section downloaded")) {
       setCurrentStep(1);
     }
-    if (lastLog.includes("portrait conversion complete") || lastLog.includes("portrait complete")) {
+    if (lastLog.includes("portrait conversion complete") || lastLog.includes("portrait complete") || lastLog.includes("split screen composition complete") || lastLog.includes("split-screen composition complete")) {
       setCurrentStep(2);
     }
     if (lastLog.includes("hook generation complete") || lastLog.includes("hook complete") || lastLog.includes("hook generation skipped")) {
@@ -141,9 +142,9 @@ export function ProcessingClipsPage() {
           const m = message.toLowerCase();
           // Step transitions happen when a step COMPLETES, not when it starts
           if (m.includes("section downloaded")) {
-            setCurrentStep(1); // Download done → now doing Portrait
-          } else if (m.includes("portrait conversion complete") || m.includes("portrait complete")) {
-            setCurrentStep(2); // Portrait done → now doing Hook
+            setCurrentStep(1); // Download done → now doing Portrait/Split
+          } else if (m.includes("portrait conversion complete") || m.includes("portrait complete") || m.includes("split screen composition complete") || m.includes("split-screen composition complete")) {
+            setCurrentStep(2); // Portrait/Split done → now doing Hook
           } else if (m.includes("hook generation complete") || m.includes("hook complete") || m.includes("hook generation skipped")) {
             setCurrentStep(3); // Hook done → now doing Caption
           } else if (m.includes("caption generation complete") || m.includes("caption complete") || m.includes("caption generation skipped")) {
@@ -161,11 +162,13 @@ export function ProcessingClipsPage() {
       // Fire telemetry webhook: one request per successfully processed clip
       // (skipped clips were processed in an earlier session and are excluded).
       const format: ClipSuccessFormat =
-        options.reframeMode === "face"
-          ? "face-tracking"
-          : options.centeredBackground === "blurred"
-            ? "centered-blur"
-            : "centered-black";
+        isSplitScreen
+          ? "split-screen"
+          : options.reframeMode === "face"
+            ? "face-tracking"
+            : options.centeredBackground === "blurred"
+              ? "centered-blur"
+              : "centered-black";
       const durationByIndex = new Map<number, number>();
       highlights.forEach((h) => {
         const idx = (h as { _highlight_index?: number })._highlight_index;
@@ -239,7 +242,7 @@ export function ProcessingClipsPage() {
         <div className="space-y-2">
           {[
             { label: "Download video sections", step: 0 },
-            { label: "Portrait conversion (9:16)", step: 1 },
+            { label: isSplitScreen ? "Split screen composition (9:16)" : "Portrait conversion (9:16)", step: 1 },
             { label: "Hook generation", step: 2, required: options.addHook },
             { label: "Caption generation", step: 3, required: options.addCaptions },
             { label: "Watermark overlay", step: 4, required: options.addWatermark || options.addCreditWatermark },

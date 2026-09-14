@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { X, Film, AlignLeft, Quote, Image as ImageIcon, User, ScanFace, Square, Eye, Sparkles, Zap } from "lucide-react";
+import { X, Film, AlignLeft, Quote, Image as ImageIcon, User, ScanFace, Square, Eye, Sparkles, Zap, MonitorPlay, FolderOpen } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Card } from "@/components/ui/card";
@@ -46,7 +47,28 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
   const [addCreditWatermark, setAddCreditWatermark] = useState(config.creditWatermark.enabled);
   const [reframeMode, setReframeMode] = useState<ReframeMode>("face");
   const [centeredBackground, setCenteredBackground] = useState<CenteredBackground>("black");
+  const [splitEnabled, setSplitEnabled] = useState(false);
+  const [splitWebcamPath, setSplitWebcamPath] = useState("");
+  const [splitWebcamName, setSplitWebcamName] = useState("");
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+
+  const handlePickWebcam = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [
+          { name: "Video", extensions: ["mp4", "mov", "mkv", "webm", "avi", "m4v"] },
+          { name: "All files", extensions: ["*"] },
+        ],
+      });
+      if (typeof selected === "string" && selected) {
+        setSplitWebcamPath(selected);
+        setSplitWebcamName(selected.split(/[\\/]/).pop() ?? selected);
+      }
+    } catch (err) {
+      console.error("Failed to pick video", err);
+    }
+  };
 
   // Trap Escape key
   useEffect(() => {
@@ -61,7 +83,19 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
   }, [onCancel, previewSrc]);
 
   const handleConfirm = () => {
-    onConfirm({ addCaptions, addHook, addWatermark, addCreditWatermark, reframeMode, centeredBackground });
+    onConfirm({
+      addCaptions,
+      addHook,
+      addWatermark,
+      addCreditWatermark,
+      reframeMode,
+      centeredBackground,
+      splitScreen: {
+        enabled: splitEnabled && !!splitWebcamPath,
+        webcamPath: splitWebcamPath,
+        topRatio: 0.55,
+      },
+    });
   };
 
   const currentPreviewSrc = reframeMode === "centered"
@@ -231,6 +265,40 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
                   <Eye className="w-3.5 h-3.5" />
                   Preview {BG_SAMPLE_LABELS[centeredBackground]}
                 </button>
+              </div>
+            )}
+
+            {/* Split screen mode */}
+            <div className="flex items-center justify-between gap-3 p-3 rounded-[var(--radius-sm)] bg-[var(--color-bg-secondary)]">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <MonitorPlay className="w-5 h-5 text-[var(--color-accent)] shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[var(--color-text-primary)]">Split Screen</p>
+                  <p className="text-xs text-[var(--color-text-muted)] truncate">
+                    Podcast style: main video on top, local webcam below (55:45)
+                  </p>
+                </div>
+              </div>
+              <Switch checked={splitEnabled} onCheckedChange={setSplitEnabled} />
+            </div>
+
+            {splitEnabled && (
+              <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--color-bg-secondary)] space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-[var(--color-text-muted)]">Bottom video (webcam / narasumber)</p>
+                </div>
+                <Button variant="outline" onClick={handlePickWebcam} className="w-full gap-2 h-9 text-sm">
+                  <FolderOpen className="w-4 h-4" />
+                  {splitWebcamName ? "Replace video" : "Choose local video"}
+                </Button>
+                {splitWebcamName && (
+                  <p className="text-xs text-[var(--color-text-muted)] truncate">{splitWebcamName}</p>
+                )}
+                {!splitWebcamPath && (
+                  <p className="text-xs text-[var(--color-warning)]">
+                    Pick a video file — Split Screen only activates when one is chosen.
+                  </p>
+                )}
               </div>
             )}
 

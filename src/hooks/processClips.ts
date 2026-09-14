@@ -3,6 +3,15 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 export type ReframeMode = "face" | "centered";
 export type CenteredBackground = "black" | "blurred";
 
+export interface SplitScreenOptions {
+  /** Stack a local video (webcam) under the main YouTube video. */
+  enabled: boolean;
+  /** Absolute path to the local video file (webcam / narasumber). */
+  webcamPath: string;
+  /** Height fraction for the TOP pane (main video). Default 0.55. */
+  topRatio: number;
+}
+
 export interface ProcessOptions {
   addCaptions: boolean;
   addHook: boolean;
@@ -10,6 +19,7 @@ export interface ProcessOptions {
   addCreditWatermark: boolean;
   reframeMode: ReframeMode;
   centeredBackground: CenteredBackground;
+  splitScreen?: SplitScreenOptions;
 }
 
 export type ProcessClipsEvent = { type: "log"; message: string };

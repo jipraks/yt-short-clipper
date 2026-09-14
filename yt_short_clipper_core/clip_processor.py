@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from .video_processor import download_video_section
 from .portrait import convert_to_portrait, convert_to_portrait_centered
+from .split_screen import combine_split_screen
 from .hook_generator import generate_hook
 from .caption_generator import generate_captions_from_words
 from .srt_parser import parse_timestamp
@@ -89,6 +90,18 @@ def process_selected_highlights(
     add_watermark = options.get("addWatermark", False)
     add_credit_watermark = options.get("addCreditWatermark", False)
 
+    # Split screen mode: stack a local video (webcam) under the main video.
+    split_screen = options.get("splitScreen") or {}
+    split_enabled = bool(split_screen.get("enabled")) and bool(split_screen.get("webcamPath"))
+    split_webcam_path = str(split_screen.get("webcamPath", ""))
+    if split_enabled and not Path(split_webcam_path).exists():
+        log(f"Split screen disabled: local video not found at {split_webcam_path}")
+        split_enabled = False
+    try:
+        split_top_ratio = float(split_screen.get("topRatio", 0.55))
+    except (TypeError, ValueError):
+        split_top_ratio = 0.55
+
     # Word-level caption timing for the full source video (from the original
     # subtitle track). Empty if unavailable — captions are then skipped.
     caption_words = _load_caption_words(session_path, log) if add_captions else []
@@ -127,10 +140,20 @@ def process_selected_highlights(
         )
         log(f"[{i}/{total}] Section downloaded: {video_path}")
 
-        # Step 2: Portrait conversion
+        # Step 2: Portrait conversion (or split-screen composition)
         portrait_path = str(temp_dir / f"portrait_{i:03d}.mp4")
-        video_path = _run_portrait(video_path, portrait_path, options, log)
-        log(f"[{i}/{total}] Portrait conversion complete")
+        if split_enabled:
+            log(f"[{i}/{total}] Split-screen mode: stacking main video + local file (top {split_top_ratio:.0%})")
+            video_path = combine_split_screen(
+                main_video_path=video_path,
+                second_video_path=split_webcam_path,
+                output_path=portrait_path,
+                top_ratio=split_top_ratio,
+                log=lambda m: log(f"[{i}/{total}] {m}"),
+            )
+        else:
+            video_path = _run_portrait(video_path, portrait_path, options, log)
+            log(f"[{i}/{total}] Portrait conversion complete")
 
         # Step 3: Hook generation (text overlay on the opening seconds)
         if add_hook:

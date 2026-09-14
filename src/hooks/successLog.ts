@@ -3,7 +3,7 @@ import { getInstallationId } from "@/hooks/installationId";
 
 const WEBHOOK_URL = "https://api.ytclip.org/webhook/yt-clipper/success-log";
 
-export type ClipSuccessFormat = "face-tracking" | "centered-black" | "centered-blur";
+export type ClipSuccessFormat = "face-tracking" | "centered-black" | "centered-blur" | "split-screen";
 
 export async function logClipSuccess(params: {
   duration: number;
