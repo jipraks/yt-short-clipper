@@ -247,7 +247,7 @@ def find_highlights(
     usage = None
     last_error: Exception | None = None
 
-    for attempt in (1, 2):
+    for attempt in (1, 2, 3):
         try:
             stream = client.chat.completions.create(
                 model=model,
@@ -263,6 +263,17 @@ def find_highlights(
                 if getattr(chunk, "usage", None):
                     usage = chunk.usage
             last_error = None
+            if not response_chunks:
+                # Empty stream means the model refused, hit a content filter,
+                # or the quota silently ran out mid-run. Not an exception, but
+                # retrying a couple of times is cheap and usually recovers
+                # transient refusals / overloads.
+                log(
+                    f"AI returned an empty response (attempt {attempt}/3). "
+                    "Retrying after a short pause..."
+                )
+                time.sleep(5)
+                continue
             break
         except Exception as e:
             msg = str(e)
@@ -274,10 +285,15 @@ def find_highlights(
                 continue
             raise _build_ai_error(e, model)
 
-    if last_error is None and not response_chunks and not usage:
+    if last_error is None and not response_chunks:
         raise RuntimeError(
-            "The AI returned an empty response. The model may have refused the "
-            "request or your quota is exceeded."
+            "The AI returned an empty response after 3 attempts. This usually "
+            "means the model refused the request, your API key quota is "
+            "exhausted, or the model does not support streaming JSON output.\n\n"
+            "Coba:\n"
+            "1. Ganti model di AI Models settings (pilih model lain)\n"
+            "2. Cek sisa kuota / isi ulang API key yang dipakai\n"
+            "3. Pakai video yang lebih pendek (transcript lebih kecil)\n"
         )
 
     result = "".join(response_chunks).strip()

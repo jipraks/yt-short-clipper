@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 import sys
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 
 block_cipher = None
 
@@ -27,6 +27,11 @@ opencv_submodules = collect_submodules('cv2')
 numpy_submodules = collect_submodules('numpy')
 ytdlp_submodules = collect_submodules('yt_dlp')
 
+# curl_cffi (required by yt-dlp >=2026 for YouTube impersonation).
+# Its native libcurl must be bundled as a binary, not just imported.
+curl_cffi_binaries = collect_dynamic_libs('curl_cffi')
+curl_cffi_submodules = collect_submodules('curl_cffi')
+
 # Pillow
 pillow_data = collect_data_files('PIL', include_py_files=False)
 pillow_submodules = collect_submodules('PIL')
@@ -34,7 +39,9 @@ pillow_submodules = collect_submodules('PIL')
 a = Analysis(
     ['../../scripts/sidecar_entry.py'],
     pathex=['../..'],
-    binaries=[],
+    binaries=[
+        *curl_cffi_binaries,
+    ],
     datas=[
         *mediapipe_data,
         *opencv_data,
@@ -47,6 +54,11 @@ a = Analysis(
         'requests',
         'charset_normalizer',
         'idna',
+        # curl_cffi for yt-dlp YouTube impersonation (TLS fingerprint)
+        'curl_cffi',
+        'curl_cffi.requests',
+        'curl_cffi.impersonate',
+        *curl_cffi_submodules,
         # PIL/Pillow for hook text overlay
         'PIL',
         'PIL.Image',
