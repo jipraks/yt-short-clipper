@@ -336,7 +336,21 @@ def _safe_stderr_write(msg: str) -> None:
 
 
 def run_loop() -> None:
-    for line in sys.stdin:
+    # PyInstaller windowed mode (console=False) sets sys.stdin = None even
+    # when the parent Rust process passes a pipe on fd 0.  Read from the raw
+    # file descriptor directly so the stdin protocol still works.
+    if sys.stdin is None:
+        import io as _io
+        import os as _os
+        _raw_stdin = _io.TextIOWrapper(
+            _os.fdopen(0, "rb", buffering=0),
+            encoding="utf-8",
+            line_buffering=True,
+        )
+    else:
+        _raw_stdin = sys.stdin
+
+    for line in _raw_stdin:
         line = line.strip()
         if not line:
             continue
