@@ -13,6 +13,44 @@ FFmpeg, MediaPipe)
 
 > **Status: beta.** Expect rough edges and breaking changes between releases.
 
+## Changelog
+
+### v2.0.29-beta (2026-09-15)
+
+- **Appearance settings** — new **Appearance** section in Settings: switch between
+  **Dark (pekat)** and **Light** mode. The dark theme uses a deep palette
+  (`#0c0c1c` / `#111125`) across every screen, sidebar, card, and dialog. On first
+  launch the app follows your OS preference; your choice is remembered afterwards.
+  A quick sun/moon toggle also lives at the bottom of the sidebar.
+- **Log output switch** — toggle the debug log console on/off from
+  Settings → Appearance. Off hides the log panel on the *Finding Highlights* and
+  *Processing Clips* screens (progress bar and step list stay visible).
+- **Removed sidebar links** — *Topup AI Credit* and *Video Tutorial* are gone from
+  the sidebar. They are now blocked client-side too, so the menu API cannot bring
+  them back.
+
+### v2.0.28-beta (2026-09-15)
+
+- **CPU fix on slow machines** — the download progress spam (8 concurrent
+  connections × multiple progress lines per second) was saturating low-end CPUs.
+  Raw yt-dlp progress lines are now dropped and rendered by the app's own
+  rate-limited progress hook (1 update/second), with `noprogress` enabled — visible
+  CPU load drops sharply on 2-core machines.
+
+### v2.0.27-beta (2026-09-15)
+
+- **Download speed fix** — the old flow downloaded each section through FFmpegFD
+  (single connection), which gets throttled by YouTube (as low as 17 KiB/s on some
+  ISPs). Downloads now use the native `HttpFD` downloader with **8 parallel
+  connections** (100–192 KiB/s in testing, 6–11× faster). Sections are cut locally
+  after one full download, so no section is ever re-downloaded.
+- **More robust releases** — portable/update assets are uploaded separately from
+  release creation, so a transient GitHub 500 on one file no longer fails the whole
+  release; uploads are retried with `--clobber`.
+- **BotGuard hardening** — YouTube JS challenges handled via player clients that
+  avoid the hang (`player_client=visionos,ios,android,tv_downgraded`,
+  `player_skip=js`).
+
 ## What it does
 
 1. You paste a YouTube URL and upload your own `cookies.txt` (see
@@ -172,7 +210,8 @@ this, point these at your own backend or strip them out — see
 
 The external links at the bottom of the sidebar are served by
 `api.ytclip.org/webhook/yt-clipper/menu`, so they can change without an app release.
-The four page routes above them stay hardcoded.
+The four page routes above them stay hardcoded. The client also blocks specific
+menu ids (`topup`, `tutorial`) permanently, regardless of what the API returns.
 
 Icons are named by the API as kebab-case strings and resolved through the allowlist in
 [`src/config/menuIcons.ts`](src/config/menuIcons.ts) — an icon must exist there before
