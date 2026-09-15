@@ -118,6 +118,13 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release delete $tag --yes --cleanup-tag
           }
-          gh release create $tag $portable $update `
+          # Create release WITHOUT assets first (--target re-creates the tag if
+          # --cleanup-tag removed it, fixing "exists locally but has not been
+          # pushed"). Upload assets separately so a 500/timeout on one file can
+          # be retried via --clobber instead of failing the whole release.
+          gh release create $tag `
             --title "YT Short Clipper $version (test build)" `
-            --notes $notes
+            --notes $notes `
+            --target main
+          gh release upload $tag $portable --clobber
+          gh release upload $tag $update --clobber
