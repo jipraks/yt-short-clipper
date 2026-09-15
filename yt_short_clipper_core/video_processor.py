@@ -323,10 +323,14 @@ def _download_section_module(
         # Overall extraction timeout (seconds). yt-dlp hangs here if YouTube
         # blocks or the connection silently dies mid-handshake.
         "extractor_timeout": 30,
-        "download_ranges": yt_dlp.utils.download_range_func(
-            None, [(_parse_timestamp(start_time), _parse_timestamp(end_time))]
-        ),
-        "force_keyframes_at_cuts": True,
+        # NO download_ranges / force_keyframes_at_cuts here on purpose: ranged
+        # downloads hand the network I/O to FFmpegFD (ffmpeg, single
+        # connection), and YouTube throttles non-browser clients per-connection
+        # (~10-20 KiB/s on Indonesian lines — an 85s section would take hours).
+        # Native download + concurrent_fragment_downloads=8 opens 8 parallel
+        # connections, bypassing the per-connection cap (measured ~100-190
+        # KiB/s, 6-11x faster on the same throttle). The section is cut locally
+        # afterwards with ffmpeg -c copy (no network involved).
         "cookiefile": cookies_path,
         "logger": _YTDlpLogger(log, download_state),
         "progress_hooks": [
@@ -477,16 +481,54 @@ def _download_section_module(
                 )
             dl_thread.join(timeout=5)
 
+    def _cut_section(full_path: str) -> str:
+        """Cut a full downloaded video to [start_time, end_time] with ffmpeg.
+
+        Local-only operation, no network. `-c copy` avoids re-encoding (also
+        means NO GPU/CPU encode cost here — the earlier section-download video
+        was never re-encoded, only trimmed).
+        """
+        stop_evt.set()  # download phase done — stop the heartbeat thread
+        log("Cutting downloaded video to requested section...")
+        cut_output = output_path + ".cut.mp4"
+        ffmpeg_path = get_ffmpeg_path()
+        cut_cmd = [
+            str(ffmpeg_path), "-y",
+            "-ss", start_time,
+            "-to", end_time,
+            "-i", full_path,
+            "-c", "copy",
+            "-avoid_negative_ts", "make_zero",
+            str(cut_output),
+        ]
+        import subprocess
+        import sys
+        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        result = subprocess.run(cut_cmd, capture_output=True, text=True, creationflags=flags)
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to cut video section with ffmpeg: {result.stderr[:500]}")
+        import shutil
+        shutil.move(cut_output, output_path)
+        return output_path
+
     def _do_download() -> str:
-        """Primary (with WinError-32 retry) → fallback full-download + local cut."""
+        """Primary native full-download + local cut → fallback (simpler format).
+
+        Primary does NOT use download_ranges: ranged downloads route the network
+        I/O through FFmpegFD (ffmpeg, one connection) which gets per-connection
+        throttled (~10-20 KiB/s on Indonesian ISPs). Native download with
+        concurrent_fragment_downloads=8 opens 8 parallel connections and cuts
+        the section locally with ffmpeg -c copy — the throttle is bypassed and
+        the local cut never touches the network.
+        """
         # Retry-on-WinError-32 loop: the final .part → .mp4 rename can fail on
         # Windows when antivirus / search-indexer briefly locks the file. The
-        # section is small, so re-downloading after a short pause is cheap.
+        # re-download is cheap relative to a stuck session, so retry a few times.
         e_download: Exception | None = None
         for attempt in range(1, 4):
             try:
                 _run_download(ydl_opts, f"primary-{attempt}")
-                return _find_downloaded_file(output_path)
+                return _cut_section(_find_downloaded_file(output_path))
             except Exception as e:
                 e_download = e
                 msg = str(e)
@@ -545,30 +587,8 @@ def _download_section_module(
             log(f"Fallback download also failed: {msg2[:200]}")
             raise RuntimeError(f"Failed to download video section: {msg2}")
 
-        # Manually cut with ffmpeg since we downloaded the full video
-        stop_evt.set()
-        log("Cutting downloaded video to requested section...")
-        cut_output = output_path + ".cut.mp4"
-        full_path = _find_downloaded_file(output_path)
-        ffmpeg_path = get_ffmpeg_path()
-        cut_cmd = [
-            str(ffmpeg_path), "-y",
-            "-ss", start_time,
-            "-to", end_time,
-            "-i", full_path,
-            "-c", "copy",
-            "-avoid_negative_ts", "make_zero",
-            str(cut_output),
-        ]
-        import subprocess
-        import sys
-        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        result = subprocess.run(cut_cmd, capture_output=True, text=True, creationflags=flags)
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to cut video section with ffmpeg: {result.stderr[:500]}")
-        import shutil
-        shutil.move(cut_output, output_path)
-        return output_path
+        # Fallback downloaded the full video — cut locally (same helper as primary)
+        return _cut_section(_find_downloaded_file(output_path))
 
     try:
         result_path = _do_download()
