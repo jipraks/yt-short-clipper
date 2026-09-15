@@ -15,6 +15,18 @@ FFmpeg, MediaPipe)
 
 ## Changelog
 
+### v2.0.31-beta (2026-09-15)
+
+- **Download quality selector** — pick the source video quality before clipping:
+  **1080p / 720p / 480p / 360p** (default **720p**). Lower quality downloads
+  significantly less data (720p ≈ −50%, 480p ≈ −75%, 360p ≈ −85%), cutting
+  download time dramatically on slow connections. Best for Shorts, since the
+  final output is 1080×1920 regardless — the source is just sampled at a lower
+  resolution before the crop.
+- **Processing link in the sidebar** — a **Processing** item (clapperboard icon)
+  now sits between Library and AI Models, so you can jump back to in-flight
+  clips without navigating through Settings.
+
 ### v2.0.30-beta (2026-09-15)
 
 - **Persistent processing state** — the Processing Clips page now stores its
