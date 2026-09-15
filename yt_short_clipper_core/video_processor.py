@@ -411,15 +411,44 @@ def _download_section_module(
     # If yt-dlp never calls the progress hook (extraction stuck), abort after
     # _EXTRACT_ABORT seconds so the app doesn't hang forever.
     _EXTRACT_ABORT = 90  # 90s: extraction normally takes <15s with JS-less clients
+    # Once extraction is done (m3u8 manifest / download phase seen), the
+    # watchdog above must NOT kill a legitimately slow CDN fetch — but it also
+    # must not exit permanently: if the m3u8/manifest fetch then STALLS forever
+    # (dead NAT on throttled links — no progress hook fires, no debug lines),
+    # nothing else would ever abort. Keep watching; abort only after this much
+    # time with ZERO log/hook activity. Legit m3u8 fetches take 90-100s on
+    # Indonesian throttled links, so 150s gives margin without hanging forever.
+    _DOWNLOAD_STALL_ABORT = 150
     _abort = threading.Event()
 
     def _extraction_watchdog() -> None:
-        """Monitor for stalled extraction; set _abort when too long with no activity."""
+        """Guard extraction AND download phases from silent stalls.
+
+        Phase 1 (extraction): abort after _EXTRACT_ABORT with no progress-hook
+        activity. Phase 2 (download): extraction is done (progress hook fired
+        or \"Downloading m3u8\"/\"Downloading item\" debug seen) — keep
+        watching, but only abort once _DOWNLOAD_STALL_ABORT passes with no
+        data/log activity at all. Both phases share one loop.
+        """
         while not _abort.wait(15):
             first = download_state.get("first_activity_ts")
             dl_active = download_state.get("download_phase_active", False)
             if first is not None or dl_active:
-                return  # extraction finished — download started
+                # Download phase: extraction finished. Last-resort guard for a
+                # manifest (m3u8) fetch that hangs forever — no progress hook
+                # fires, the connection may be dead. Fall through only when
+                # data truly stalled; real downloads refresh last_log_ts via
+                # the progress hook on every fragment.
+                last_activity = download_state.get("last_log_ts") or _download_start
+                idle_for = int(time.monotonic() - last_activity)
+                if idle_for < _DOWNLOAD_STALL_ABORT:
+                    continue  # still alive — keep watching
+                log(
+                    f"⚠️ Download phase stalled — no data for {idle_for}s. "
+                    "Aborting and retrying with fallback options..."
+                )
+                _abort.set()
+                return
             elapsed = int(time.monotonic() - _download_start)
             if elapsed >= _EXTRACT_ABORT:
                 log(
