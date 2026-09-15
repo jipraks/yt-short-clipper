@@ -15,18 +15,14 @@ const CACHE_KEY = "ytclip.sidebar-menu.v1";
 const MAX_ITEMS = 8;
 const MAX_LABEL_CHARS = 32;
 
+/** Menu items blocked by the client — never shown even if the API sends them. */
+const BLOCKED_IDS = new Set(["topup", "tutorial"]);
+
 /**
  * Shipped with the build and shown on first run, offline, or whenever the API
  * returns nothing usable — the sidebar must never render empty.
  */
 export const DEFAULT_MENU_ITEMS: MenuItem[] = [
-  { id: "topup", label: "Topup AI Credit", icon: "coins", url: "https://ai.ytclip.org" },
-  {
-    id: "tutorial",
-    label: "Video Tutorial",
-    icon: "youtube",
-    url: "https://www.youtube.com/playlist?list=PLXvNtebci7kQ",
-  },
   { id: "discord", label: "Discord Server", icon: "messages-square", url: "https://s.id/ytsdc" },
 ];
 
@@ -37,6 +33,11 @@ function sanitizeItem(raw: unknown): MenuItem | null {
   if (typeof id !== "string" || !id.trim()) return null;
   if (typeof label !== "string" || !label.trim()) return null;
   if (typeof url !== "string") return null;
+
+  const trimmedId = id.trim().toLowerCase();
+
+  // Block removed menu items (topup, tutorial) permanently on the client
+  if (BLOCKED_IDS.has(trimmedId)) return null;
 
   // https only. These URLs are handed to the OS browser, so the menu endpoint
   // is a channel that can send every user anywhere — refuse anything else.
@@ -49,7 +50,7 @@ function sanitizeItem(raw: unknown): MenuItem | null {
   if (parsed.protocol !== "https:") return null;
 
   return {
-    id: id.trim(),
+    id: trimmedId,
     label: label.trim().slice(0, MAX_LABEL_CHARS),
     icon: typeof icon === "string" ? icon.trim().toLowerCase() : "",
     url: parsed.toString(),
@@ -63,7 +64,6 @@ function sanitizeItem(raw: unknown): MenuItem | null {
 export function sanitizeMenu(raw: unknown): MenuItem[] {
   const items = (raw as { items?: unknown })?.items;
   if (!Array.isArray(items)) return [];
-
   const seen = new Set<string>();
   const clean: MenuItem[] = [];
   for (const entry of items) {
@@ -106,13 +106,10 @@ export async function fetchMenu(): Promise<MenuItem[] | null> {
     const url =
       `${MENU_URL}?app_version=${encodeURIComponent(APP_VERSION)}` +
       `&installation_id=${encodeURIComponent(installationId)}`;
-
     const res = await fetch(url);
     if (!res.ok) return null;
-
     const items = sanitizeMenu(await res.json());
     if (!items.length) return null;
-
     writeCachedMenu(items);
     return items;
   } catch {

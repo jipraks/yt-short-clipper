@@ -48,6 +48,59 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
+/* ───────────────────────────────────────────────────────
+   Dark theme — deep dark / pekat
+   Applied when <html> has class="dark"
+   ─────────────────────────────────────────────────────── */
+.dark {
+  /* Backgrounds */
+  --color-bg-primary: #0c0c1c;
+  --color-bg-secondary: #111125;
+  --color-bg-card: #16162e;
+  --color-bg-sidebar: #0a0a18;
+  --color-bg-hover: #1e1e3a;
+  --color-bg-input: #0e0e20;
+
+  /* Borders */
+  --color-border: #26264a;
+  --color-border-light: #1a1a36;
+  --color-border-focus: #3B82F6;
+
+  /* Accent */
+  --color-accent: #3B82F6;
+  --color-accent-hover: #2563EB;
+  --color-accent-light: #172554;
+
+  /* Text */
+  --color-text-primary: #F1F5F9;
+  --color-text-secondary: #CBD5E1;
+  --color-text-muted: #64748B;
+  --color-text-on-accent: #FFFFFF;
+
+  /* Semantic */
+  --color-success: #4ADE80;
+  --color-success-bg: #052e16;
+  --color-warning: #FBBF24;
+  --color-warning-bg: #451a03;
+  --color-error: #F87171;
+  --color-error-bg: #450a0a;
+
+  /* Shadows (deeper, more visible on dark) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* Transition for smooth theme switching */
+html {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Only apply transition to backgrounds when theme toggles (not all elements) */
+html *:where(body, aside, main, div[class], section, article, header, footer) {
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
 @layer base {
   * {
     border-color: var(--color-border);

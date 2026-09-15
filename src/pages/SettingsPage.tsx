@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Cpu, Loader2, RefreshCw, Zap, ChevronRight } from "lucide-react";
+import { Cpu, Loader2, RefreshCw, Zap, ChevronRight, Sun, Moon } from "lucide-react";
+import { useAppStore } from "@/stores/appStore";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -11,6 +12,7 @@ import { useConfigStore } from "@/stores/configStore";
 export function SettingsPage() {
   const navigate = useNavigate();
   const { config, loaded, load, setGpuAcceleration } = useConfigStore();
+  const { theme, setTheme, showLogs, toggleShowLogs } = useAppStore();
   const [detection, setDetection] = useState<GpuDetection | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -60,6 +62,52 @@ export function SettingsPage() {
           Configure performance and output options.
         </p>
       </div>
+
+      <SettingSection
+        title="Appearance"
+        description="Theme and display preferences."
+      >
+        <SettingRow
+          title="Theme"
+          description={
+            theme === "dark"
+              ? "Dark mode (pekat) — easier on the eyes at night"
+              : "Light mode — bright and clean"
+          }
+        >
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant={theme === "light" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTheme("light")}
+              className="gap-1.5"
+            >
+              <Sun className="w-4 h-4" />
+              Light
+            </Button>
+            <Button
+              variant={theme === "dark" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTheme("dark")}
+              className="gap-1.5"
+            >
+              <Moon className="w-4 h-4" />
+              Dark
+            </Button>
+          </div>
+        </SettingRow>
+
+        <SettingRow
+          title="Log output"
+          description={
+            showLogs
+              ? "Show the debug log console during processing"
+              : "Hide the debug log console during processing"
+          }
+        >
+          <Switch checked={showLogs} onCheckedChange={toggleShowLogs} />
+        </SettingRow>
+      </SettingSection>
 
       <SettingSection
         title="GPU Acceleration"

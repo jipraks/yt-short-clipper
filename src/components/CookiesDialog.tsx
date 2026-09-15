@@ -109,7 +109,7 @@ export function CookiesDialog({ onDone }: CookiesDialogProps) {
                 {foundCookies.map((c) => (
                   <span
                     key={c}
-                    className="text-xs px-1.5 py-0.5 bg-white/60 rounded font-mono"
+                    className="text-xs px-1.5 py-0.5 bg-[var(--color-bg-primary)]/70 rounded font-mono"
                   >
                     {c}
                   </span>

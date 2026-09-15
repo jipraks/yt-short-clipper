@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { processClips, type ProcessOptions } from "@/hooks/processClips";
 import { logClipSuccess, type ClipSuccessFormat } from "@/hooks/successLog";
 import { useConfigStore } from "@/stores/configStore";
+import { useAppStore } from "@/stores/appStore";
 import { formatLogTime } from "@/utils/format";
 
 interface ClipProcessingState {
@@ -20,6 +21,7 @@ export function ProcessingClipsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { config } = useConfigStore();
+  const { showLogs } = useAppStore();
   const state = location.state as ClipProcessingState | undefined;
 
   if (!state) {
@@ -276,52 +278,54 @@ export function ProcessingClipsPage() {
         </div>
       </Card>
 
-      {/* Log console */}
-      <Card className="p-0 overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border-light)] bg-[var(--color-bg-sidebar)]">
-          <span className="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">
-            Log Output
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={copyLog}
-            disabled={logLines.length === 0}
-            className="h-7 gap-1.5 text-xs"
-          >
-            {copied ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-[var(--color-success)]" />
-                Copied
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5" />
-                Copy
-              </>
-            )}
-          </Button>
-        </div>
-        <div className="h-[260px] overflow-y-auto p-3 font-mono text-xs space-y-1 bg-[var(--color-bg-primary)]">
-          {logLines.map((line, i) => (
-            <div key={i} className="flex gap-2">
-              <span className="text-[var(--color-text-muted)] shrink-0">
-                [{formatLogTime(line.ts)}]
-              </span>
-              <span
-                className={
-                  line.level === "error" ? "text-[var(--color-error)]"
-                    : line.level === "success" ? "text-[var(--color-success)]"
-                    : "text-[var(--color-text-secondary)]"
-                }
-              >
-                {line.message}
-              </span>
-            </div>
-          ))}
-          <div ref={logEndRef} />
-        </div>
-      </Card>
+      {/* Log console (toggleable in Settings → Appearance) */}
+      {showLogs && (
+        <Card className="p-0 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border-light)] bg-[var(--color-bg-sidebar)]">
+            <span className="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">
+              Log Output
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={copyLog}
+              disabled={logLines.length === 0}
+              className="h-7 gap-1.5 text-xs"
+            >
+              {copied ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-[var(--color-success)]" />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  Copy
+                </>
+              )}
+            </Button>
+          </div>
+          <div className="h-[260px] overflow-y-auto p-3 font-mono text-xs space-y-1 bg-[var(--color-bg-primary)]">
+            {logLines.map((line, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="text-[var(--color-text-muted)] shrink-0">
+                  [{formatLogTime(line.ts)}]
+                </span>
+                <span
+                  className={
+                    line.level === "error" ? "text-[var(--color-error)]"
+                      : line.level === "success" ? "text-[var(--color-success)]"
+                      : "text-[var(--color-text-secondary)]"
+                  }
+                >
+                  {line.message}
+                </span>
+              </div>
+            ))}
+            <div ref={logEndRef} />
+          </div>
+        </Card>
+      )}
 
       {error && (
         <Button onClick={() => navigate("/")} variant="outline" className="w-full">
