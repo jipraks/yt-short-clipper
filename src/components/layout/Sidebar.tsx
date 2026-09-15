@@ -9,6 +9,7 @@ import {
   PanelLeftOpen,
   Sun,
   Moon,
+  Clapperboard,
 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ import { open as openUrl } from "@tauri-apps/plugin-shell";
 const navItems = [
   { to: "/", icon: PlusCircle, label: "Create" },
   { to: "/library", icon: FolderOpen, label: "Library" },
+  { to: "/processing-clips", icon: Clapperboard, label: "Processing" },
   { to: "/ai-models", icon: Bot, label: "AI Models" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];

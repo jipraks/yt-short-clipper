@@ -21,6 +21,21 @@ def _parse_timestamp(ts: str) -> float:
     return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
 
 
+def _build_format_selector(max_height: int) -> str:
+    """Build a yt-dlp format selector capped at ``max_height`` pixels.
+
+    Strongly prefers H.264 (avc1) video + m4a audio at any height. Smaller
+    caps (720p/480p) download much less data — vital on throttled lines where
+    a full 1080p source can be >1.5 GiB and take 40+ minutes.
+    """
+    return (
+        f"bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+        f"bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio/"
+        f"bestvideo[height<={max_height}]+bestaudio/"
+        f"best[height<={max_height}]/best"
+    )
+
+
 def _find_downloaded_file(output_path: str) -> str:
     """yt-dlp may change the extension; find the actual file."""
     if Path(output_path).exists():
@@ -246,8 +261,13 @@ def download_video_section(
     end_time: str,
     output_path: str,
     log: LogFn | None = None,
+    max_height: int = 1080,
 ) -> str:
     """Download a specific section of a YouTube video.
+
+    ``max_height`` caps the source resolution (1080/720/480...) — smaller
+    caps = smaller download = faster on throttled links. Shorts output is
+    1080x1920 max, so 720p is plenty for most cases.
 
     Returns path to the downloaded file.
     """
@@ -256,7 +276,7 @@ def download_video_section(
     end_clean = end_time.replace(",", ".")
 
     if is_ytdlp_module_available():
-        return _download_section_module(url, start_clean, end_clean, output_path, log)
+        return _download_section_module(url, start_clean, end_clean, output_path, log, max_height)
     else:
         raise RuntimeError(
             "yt-dlp Python module is required for downloading video sections. "
@@ -270,27 +290,18 @@ def _download_section_module(
     end_time: str,
     output_path: str,
     log: LogFn,
+    max_height: int = 1080,
 ) -> str:
     import yt_dlp
 
     log(f"Downloading section {start_time} -> {end_time}...")
+    log(f"Source quality: max {max_height}p (H.264) — smaller quality = smaller file & faster download")
 
     _setup_ytdlp_env()
     ffmpeg_path = get_ffmpeg_path()
     cookies_path = _get_cookies_path()
 
-    # Cap at 1080p and strongly prefer H.264 (avc1) video + m4a audio.
-    # YouTube's >1080p tiers are VP9/AV1 only; picking those forces ffmpeg to
-    # decode VP9/AV1 and re-encode to H.264 during the section cut, which on a
-    # 1440p/2160p source crawls at ~1-2x realtime on CPU (the "stuck for hours"
-    # symptom). H.264 1080p keeps the cut cheap and speeds up the later portrait
-    # encode too (smaller input). Falls back progressively if avc1 is absent.
-    format_selector = (
-        "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
-        "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/"
-        "bestvideo[height<=1080]+bestaudio/"
-        "best[height<=1080]/best"
-    )
+    format_selector = _build_format_selector(max_height)
 
     download_state = {
         "last_log_ts": time.monotonic(),
@@ -571,21 +582,11 @@ def _download_section_module(
                 "Please export fresh cookies while logged into YouTube."
             )
 
-        # Retry with fallback on ANY failure (dead connection, HLS range quirk, etc.):
-        # simple format + no download_ranges (full video, cut locally with ffmpeg).
-        # IMPORTANT: keep the SAME avc1-1080p preference as the primary — on a
-        # throttled link, picking 2160p VP9 (the generic "best" fallback) turns
-        # a 60 MB download into a 200 MB one and effectively never finishes.
         log("Retrying with fallback options (simple format + no ranges)...")
         fallback_opts = dict(ydl_opts)
         fallback_opts.pop("download_ranges", None)
         fallback_opts.pop("force_keyframes_at_cuts", None)
-        fallback_opts["format"] = (
-            "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
-            "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/"
-            "bestvideo[height<=1080]+bestaudio/"
-            "best[height<=1080]/best"
-        )
+        fallback_opts["format"] = _build_format_selector(max_height)
         download_state["last_log_ts"] = time.monotonic()
         download_state["last_pct"] = None
         download_state["last_detail"] = "(fallback retry)"

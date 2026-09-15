@@ -1,14 +1,45 @@
 import { useState, useEffect } from "react";
-import { X, Film, AlignLeft, Quote, Image as ImageIcon, User, ScanFace, Square, Eye, Sparkles, Zap, MonitorPlay, FolderOpen } from "lucide-react";
+import { X, Film, AlignLeft, Quote, Image as ImageIcon, User, ScanFace, Square, Eye, Sparkles, Zap, MonitorPlay, FolderOpen, DownloadCloud } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Card } from "@/components/ui/card";
 import { useConfigStore } from "@/stores/configStore";
-import type { ReframeMode, CenteredBackground } from "@/hooks/processClips";
+import type { ReframeMode, CenteredBackground, DownloadQuality } from "@/hooks/processClips";
 
 export type { ProcessOptions } from "@/hooks/processClips";
 import type { ProcessOptions } from "@/hooks/processClips";
+
+const QUALITY_OPTIONS: { value: DownloadQuality; label: string; badge: string; badgeClass: string; note: string }[] = [
+  {
+    value: "1080p",
+    label: "1080p",
+    badge: "Best Quality",
+    badgeClass: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
+    note: "Largest file — slow on slow internet",
+  },
+  {
+    value: "720p",
+    label: "720p",
+    badge: "Recommended",
+    badgeClass: "bg-[var(--color-warning-bg)] text-[var(--color-warning)]",
+    note: "Balanced — ~50% smaller",
+  },
+  {
+    value: "480p",
+    label: "480p",
+    badge: "Small",
+    badgeClass: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
+    note: "~75% smaller — phone-quality OK",
+  },
+  {
+    value: "360p",
+    label: "360p",
+    badge: "Smallest",
+    badgeClass: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
+    note: "~85% smaller — fastest, for slow links",
+  },
+];
 
 const SAMPLE_IMAGES: Record<ReframeMode, string> = {
   face: "/sample-face-tracking.png",
@@ -47,6 +78,7 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
   const [addCreditWatermark, setAddCreditWatermark] = useState(config.creditWatermark.enabled);
   const [reframeMode, setReframeMode] = useState<ReframeMode>("face");
   const [centeredBackground, setCenteredBackground] = useState<CenteredBackground>("black");
+  const [downloadQuality, setDownloadQuality] = useState<DownloadQuality>("720p");
   const [splitEnabled, setSplitEnabled] = useState(false);
   const [splitWebcamPath, setSplitWebcamPath] = useState("");
   const [splitWebcamName, setSplitWebcamName] = useState("");
@@ -90,6 +122,7 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
       addCreditWatermark,
       reframeMode,
       centeredBackground,
+      downloadQuality,
       splitScreen: {
         enabled: splitEnabled && !!splitWebcamPath,
         webcamPath: splitWebcamPath,
@@ -177,6 +210,36 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
               Processing <span className="font-semibold text-[var(--color-text-primary)]">{clipCount}</span> clip{clipCount !== 1 ? "s" : ""}. 
               Choose which enhancements to apply:
             </p>
+
+            {/* Download quality selector */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <DownloadCloud className="w-4 h-4 text-[var(--color-accent)]" />
+                <p className="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">
+                  Source Video Quality
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {QUALITY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setDownloadQuality(opt.value)}
+                    className={`relative flex flex-col items-center gap-1 p-2.5 rounded-[var(--radius-sm)] border text-center transition-colors ${
+                      downloadQuality === opt.value
+                        ? "border-[var(--color-accent)] bg-[var(--color-bg-secondary)]"
+                        : "border-transparent bg-[var(--color-bg-secondary)] hover:border-[var(--color-border-light)]"
+                    }`}
+                  >
+                    <span className="text-sm font-semibold text-[var(--color-text-primary)]">{opt.label}</span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${opt.badgeClass}`}>{opt.badge}</span>
+                    <span className="text-[10px] text-[var(--color-text-muted)] leading-tight">{opt.note}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-[var(--color-text-muted)] italic">
+                Lower quality = smaller file &amp; faster download. 720p is sharp enough for Shorts.
+              </p>
+            </div>
 
             {/* Reframe mode selector */}
             <div className="space-y-2">

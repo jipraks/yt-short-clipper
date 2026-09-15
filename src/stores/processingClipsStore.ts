@@ -60,6 +60,7 @@ export const useProcessingClipsStore = create<ProcessingClipsState>((set) => ({
     addCreditWatermark: false,
     reframeMode: "face",
     centeredBackground: "black",
+    downloadQuality: "720p",
   },
   ...INITIAL,
 

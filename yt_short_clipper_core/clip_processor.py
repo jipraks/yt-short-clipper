@@ -130,6 +130,13 @@ def process_selected_highlights(
         section_path = str(temp_dir / f"section_{i:03d}.mp4")
 
         # Step 1: Download video section
+        # Download quality: 1080p (default) / 720p / 480p — set by the user in
+        # the ProcessConfirmDialog. Smaller values download less data (halves or
+        # quarters the file) but slightly reduce source sharpness. For Shorts
+        # (1080x1920 output), 720p is the sweet spot between speed and quality.
+        quality_map = {"1080p": 1080, "720p": 720, "480p": 480, "360p": 360}
+        max_height = quality_map.get(options.get("downloadQuality", "720p"), 720)
+        log(f"[{i}/{total}] Download quality: max {max_height}p")
         log(f"[{i}/{total}] Downloading video section {h['start_time']} -> {h['end_time']}...")
         video_path = download_video_section(
             url=url,
@@ -137,6 +144,7 @@ def process_selected_highlights(
             end_time=h["end_time"],
             output_path=section_path,
             log=log,
+            max_height=max_height,
         )
         log(f"[{i}/{total}] Section downloaded: {video_path}")
 

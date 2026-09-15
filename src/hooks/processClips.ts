@@ -2,6 +2,8 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 
 export type ReframeMode = "face" | "centered";
 export type CenteredBackground = "black" | "blurred";
+/** Source resolution cap for the YouTube download. Smaller = faster download. */
+export type DownloadQuality = "1080p" | "720p" | "480p" | "360p";
 
 export interface SplitScreenOptions {
   /** Stack a local video (webcam) under the main YouTube video. */
@@ -19,6 +21,8 @@ export interface ProcessOptions {
   addCreditWatermark: boolean;
   reframeMode: ReframeMode;
   centeredBackground: CenteredBackground;
+  /** Source resolution cap for the download — 720p by default (smaller file). */
+  downloadQuality?: DownloadQuality;
   splitScreen?: SplitScreenOptions;
 }
 

@@ -1,6 +1,6 @@
 {
   "productName": "YTShortClipperV2",
-  "version": "2.0.28",
+  "version": "2.0.31",
   "identifier": "com.jipraks.ytshortclipper-v2",
   "build": {
     "frontendDist": "../dist",
