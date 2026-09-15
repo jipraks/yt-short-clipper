@@ -192,7 +192,18 @@ class _YTDlpLogger:
         # right now, not the byte counters. "Downloading fragment" is
         # excluded on purpose — on HLS it fires per fragment (thousands
         # of times) and would flood the sidecar stdout pipe.
-        if any(k in msg for k in ("Downloading ", "Downloading item ", "[download]", "Extracting", "Resuming", "Merging", "Deleting")):
+        # CRITICAL (v2.0.28): "[download] X% of ~ YMiB at ZKiB/s (frag N/M)"
+        # progress lines must NEVER be forwarded. With
+        # concurrent_fragment_downloads=8, yt-dlp emits one per fragment per
+        # thread (~10-30 lines/sec), flooding the log AND hammering CPU on
+        # low-end machines (Celeron 2-core). Progress belongs to
+        # _yt_dlp_progress_hook only (rate-limited to 1 line/sec). Keep only
+        # the lifecycle lines: Destination, already-downloaded skips.
+        if "[download]" in msg:
+            if "[download] Destination" in msg or "[download] has already" in msg:
+                self._log(msg)
+            return
+        if any(k in msg for k in ("Downloading ", "Downloading item ", "Extracting", "Resuming", "Merging", "Deleting")):
             self._log(msg)
 
     def info(self, msg: str) -> None:
@@ -296,6 +307,12 @@ def _download_section_module(
         "outtmpl": output_path,
         "quiet": True,
         "no_warnings": False,
+        # v2.0.28: suppress yt-dlp's OWN progress rendering entirely
+        # ("[download] X% of ~ YMiB ... (frag N/M)" lines). With 8 parallel
+        # fragments those fire ~10-30x/sec and hammer CPU on low-end machines.
+        # progress_hooks still fire (watchdog + UI progress keep working), only
+        # the raw console/logger rendering is disabled.
+        "noprogress": True,
         "hls_prefer_native": True,
         # Parallel fragment connections: YouTube throttles non-browser
         # clients per-connection (~a few hundred B/s). Browsers open many
