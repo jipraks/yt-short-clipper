@@ -1,6 +1,14 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Loader2, Copy, Check } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Loader2,
+  Copy,
+  Check,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -8,7 +16,9 @@ import { processClips, type ProcessOptions } from "@/hooks/processClips";
 import { logClipSuccess, type ClipSuccessFormat } from "@/hooks/successLog";
 import { useConfigStore } from "@/stores/configStore";
 import { useAppStore } from "@/stores/appStore";
+import { useProcessingClipsStore } from "@/stores/processingClipsStore";
 import { formatLogTime } from "@/utils/format";
+import { cn } from "@/lib/utils";
 
 interface ClipProcessingState {
   url: string;
@@ -21,23 +31,26 @@ export function ProcessingClipsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { config } = useConfigStore();
-  const { showLogs } = useAppStore();
+  const { showLogs, toggleShowLogs } = useAppStore();
+
+  // Live view of the persistent session store — survives navigating away/back.
+  const logLines = useProcessingClipsStore((s) => s.logLines);
+  const currentStep = useProcessingClipsStore((s) => s.currentStep);
+  const progress = useProcessingClipsStore((s) => s.progress);
+  const isComplete = useProcessingClipsStore((s) => s.isComplete);
+  const error = useProcessingClipsStore((s) => s.error);
+  const initialized = useProcessingClipsStore((s) => s.initialized);
+  const active = useProcessingClipsStore((s) => s.active);
+  const highlights = useProcessingClipsStore((s) => s.highlights);
+
   const state = location.state as ClipProcessingState | undefined;
+  const options = useProcessingClipsStore((s) => s.options);
+  const isSplitScreen = !!options?.splitScreen?.enabled;
 
-  if (!state) {
-    navigate("/");
-    return null;
-  }
-
-  const { url, highlights, sessionDir, options } = state;
-  const isSplitScreen = !!options.splitScreen?.enabled;
-  const [logLines, setLogLines] = useState<{ level: string; message: string; ts: number }[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [currentStep, setCurrentStep] = useState(0); // 0=download, 1=portrait, 2=hook, 3=caption, 4=watermark
-  const [progress, setProgress] = useState(0);
-  const [isComplete, setIsComplete] = useState(false);
   const [copied, setCopied] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
+  const startedRef = useRef(false);
+
   const copyLog = useCallback(async () => {
     const text = logLines
       .map((l) => `[${formatLogTime(l.ts)}] ${l.level.toUpperCase()}: ${l.message}`)
@@ -51,50 +64,17 @@ export function ProcessingClipsPage() {
     }
   }, [logLines]);
 
-  const startedRef = useRef(false);
-
-  const appendLog = useCallback((message: string) => {
-    const m = message.toLowerCase();
-    const level = m.includes("error") || m.includes("failed") ? "error"
-      : m.includes("success") || m.includes("complete") || m.includes("saved") ? "success"
-      : "info";
-    setLogLines((prev) => [...prev, { level, message, ts: Date.now() }]);
-  }, []);
-
-  // Auto-progress based on log patterns
-  useEffect(() => {
-    const lastLog = (logLines[logLines.length - 1]?.message || "").toLowerCase();
-
-    if (lastLog.includes("section downloaded")) {
-      setCurrentStep(1);
-    }
-    if (lastLog.includes("portrait conversion complete") || lastLog.includes("portrait complete") || lastLog.includes("split screen composition complete") || lastLog.includes("split-screen composition complete")) {
-      setCurrentStep(2);
-    }
-    if (lastLog.includes("hook generation complete") || lastLog.includes("hook complete") || lastLog.includes("hook generation skipped")) {
-      setCurrentStep(3);
-    }
-    if (lastLog.includes("caption generation complete") || lastLog.includes("caption complete") || lastLog.includes("caption generation skipped")) {
-      setCurrentStep(4);
-    }
-    if (lastLog.includes("watermark") && lastLog.includes("complete")) {
-      setCurrentStep(5);
-    }
-
-    const clipsSaved = logLines.filter((l) => l.message.toLowerCase().includes("clip saved")).length;
-    if (clipsSaved > 0 && highlights.length > 0) {
-      setProgress(Math.min(95, Math.round((clipsSaved / highlights.length) * 95)));
-    }
-  }, [logLines, highlights.length]);
-
   const run = useCallback(async () => {
-    const hf = config.ai;
-    if (!hf.apiKey || !hf.model) {
-      setError("AI provider not configured. Please set it up in AI Models first.");
+    const store = useProcessingClipsStore.getState();
+    if (!store.initialized || !store.url) return;
+    const { url, highlights: hls, sessionDir, options } = store;
+
+    if (!config.ai.apiKey || !config.ai.model) {
+      store.setError("AI provider not configured. Please set it up in AI Models first.");
       return;
     }
 
-    appendLog("Starting clip processing...");
+    store.appendLog("Starting clip processing...");
 
     try {
       const hookStyle = config.hookStyle;
@@ -103,14 +83,14 @@ export function ProcessingClipsPage() {
 
       const result = (await processClips({
         url,
-        highlights,
+        highlights: hls,
         sessionDir,
         options,
         ai: {
-          api_key: hf.apiKey,
-          base_url: hf.baseUrl,
-          model: hf.model,
-          system_message: hf.systemMessage,
+          api_key: config.ai.apiKey,
+          base_url: config.ai.baseUrl,
+          model: config.ai.model,
+          system_message: config.ai.systemMessage,
           temperature: 1.0,
           hook_style: {
             font_name: hookStyle.fontName,
@@ -140,23 +120,37 @@ export function ProcessingClipsPage() {
           },
         },
         onLog: (message) => {
-          appendLog(message);
+          const st = useProcessingClipsStore.getState();
+          st.appendLog(message);
           const m = message.toLowerCase();
           // Step transitions happen when a step COMPLETES, not when it starts
           if (m.includes("section downloaded")) {
-            setCurrentStep(1); // Download done → now doing Portrait/Split
-          } else if (m.includes("portrait conversion complete") || m.includes("portrait complete") || m.includes("split screen composition complete") || m.includes("split-screen composition complete")) {
-            setCurrentStep(2); // Portrait/Split done → now doing Hook
-          } else if (m.includes("hook generation complete") || m.includes("hook complete") || m.includes("hook generation skipped")) {
-            setCurrentStep(3); // Hook done → now doing Caption
-          } else if (m.includes("caption generation complete") || m.includes("caption complete") || m.includes("caption generation skipped")) {
-            setCurrentStep(4); // Caption done → now doing Watermark
+            st.setStep(1);
+          } else if (
+            m.includes("portrait conversion complete") ||
+            m.includes("portrait complete") ||
+            m.includes("split screen composition complete") ||
+            m.includes("split-screen composition complete")
+          ) {
+            st.setStep(2);
+          } else if (
+            m.includes("hook generation complete") ||
+            m.includes("hook complete") ||
+            m.includes("hook generation skipped")
+          ) {
+            st.setStep(3);
+          } else if (
+            m.includes("caption generation complete") ||
+            m.includes("caption complete") ||
+            m.includes("caption generation skipped")
+          ) {
+            st.setStep(4);
           } else if (m.includes("watermark") && m.includes("complete")) {
-            setCurrentStep(5); // Watermark done
+            st.setStep(5);
           }
           if (m.includes("all") && m.includes("processed")) {
-            setProgress(100);
-            setIsComplete(true);
+            st.setProgress(100);
+            st.setComplete();
           }
         },
       }) as { results?: Array<{ clip_index?: number; skipped?: boolean }> });
@@ -172,7 +166,7 @@ export function ProcessingClipsPage() {
               ? "centered-blur"
               : "centered-black";
       const durationByIndex = new Map<number, number>();
-      highlights.forEach((h) => {
+      hls.forEach((h) => {
         const idx = (h as { _highlight_index?: number })._highlight_index;
         const dur = (h as { duration_seconds?: number }).duration_seconds;
         if (typeof idx === "number" && typeof dur === "number") durationByIndex.set(idx, dur);
@@ -185,48 +179,94 @@ export function ProcessingClipsPage() {
         void logClipSuccess({ duration: dur, format });
       }
 
-      setIsComplete(true);
-      setProgress(100);
-      appendLog("✅ All clips processed successfully!");
+      const st = useProcessingClipsStore.getState();
+      st.setComplete();
+      st.appendLog("✅ All clips processed successfully!");
     } catch (err) {
-      const detail = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
+      const detail =
+        err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
       console.error("process_clips failed", err);
-      setError(detail);
-      appendLog(`❌ Error: ${detail}`);
+      const st = useProcessingClipsStore.getState();
+      st.setError(detail);
+      st.appendLog(`❌ Error: ${detail}`);
     }
-  }, [url, highlights, sessionDir, options, config.ai, config.hookStyle, config.watermark, config.creditWatermark, appendLog, navigate]);
+  }, [config, isSplitScreen]);
 
+  // Bootstrap: restore an existing session OR start a fresh one from location.state.
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
-    run();
-  }, [run]);
+
+    const store = useProcessingClipsStore.getState();
+    if (store.initialized) {
+      // Session already exists (user navigated away and came back) — the
+      // sidecar invoke keeps running in the background; just resume the view.
+      return;
+    }
+
+    if (!state) {
+      navigate("/");
+      return;
+    }
+
+    const { url, highlights: hls, sessionDir, options } = state;
+    store.start({ url, highlights: hls, sessionDir, options });
+    void run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logLines]);
 
+  const title = error
+    ? "Something went wrong"
+    : isComplete
+      ? "✅ Processing complete!"
+      : active
+        ? "Processing clips..."
+        : initialized
+          ? "Processing paused"
+          : "Processing clips...";
+
+  const subtitle = error
+    ? "Review the log below and try again."
+    : isComplete
+      ? "All clips have been processed and saved."
+      : `Processing ${highlights.length} clips with selected enhancements.`;
+
   return (
     <div className="space-y-5">
-      <Button
-        variant="ghost"
-        onClick={() => navigate("/")}
-        className="gap-2 text-[var(--color-text-secondary)]"
-        disabled={!isComplete}
-      >
-        <ArrowLeft className="w-4 h-4" />
-        {isComplete ? "Back to Create" : "Processing..."}
-      </Button>
+      <div className="flex items-center justify-between gap-3">
+        <Button
+          variant="ghost"
+          onClick={() => navigate("/")}
+          className="gap-2 text-[var(--color-text-secondary)]"
+          disabled={!isComplete && !error && active}
+        >
+          <ArrowLeft className="w-4 h-4" />
+          {isComplete || error ? "Back to Create" : "Processing..."}
+        </Button>
+
+        {/* Log on/off toggle — always visible on this page */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={toggleShowLogs}
+          className={cn(
+            "gap-2",
+            showLogs ? "text-[var(--color-accent)]" : "text-[var(--color-text-muted)]"
+          )}
+          title={showLogs ? "Hide log console" : "Show log console"}
+        >
+          {showLogs ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+          {showLogs ? "Log: On" : "Log: Off"}
+        </Button>
+      </div>
 
       <div>
-        <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">
-          {isComplete ? "✅ Processing complete!" : "Processing clips..."}
-        </h2>
-        <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          {isComplete
-            ? "All clips have been processed and saved."
-            : `Processing ${highlights.length} clips with selected enhancements.`}
-        </p>
+        <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">{title}</h2>
+        <p className="text-sm text-[var(--color-text-muted)] mt-1">{subtitle}</p>
       </div>
 
       {/* Progress bar */}
@@ -244,10 +284,17 @@ export function ProcessingClipsPage() {
         <div className="space-y-2">
           {[
             { label: "Download video sections", step: 0 },
-            { label: isSplitScreen ? "Split screen composition (9:16)" : "Portrait conversion (9:16)", step: 1 },
-            { label: "Hook generation", step: 2, required: options.addHook },
-            { label: "Caption generation", step: 3, required: options.addCaptions },
-            { label: "Watermark overlay", step: 4, required: options.addWatermark || options.addCreditWatermark },
+            {
+              label: isSplitScreen ? "Split screen composition (9:16)" : "Portrait conversion (9:16)",
+              step: 1,
+            },
+            { label: "Hook generation", step: 2, required: options?.addHook },
+            { label: "Caption generation", step: 3, required: options?.addCaptions },
+            {
+              label: "Watermark overlay",
+              step: 4,
+              required: options?.addWatermark || options?.addCreditWatermark,
+            },
           ].map((item, i) => {
             const isActive = currentStep === item.step;
             const isDone = currentStep > item.step;
@@ -278,7 +325,7 @@ export function ProcessingClipsPage() {
         </div>
       </Card>
 
-      {/* Log console (toggleable in Settings → Appearance) */}
+      {/* Log console — hidden by the page-level Log toggle */}
       {showLogs && (
         <Card className="p-0 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border-light)] bg-[var(--color-bg-sidebar)]">
@@ -327,20 +374,29 @@ export function ProcessingClipsPage() {
         </Card>
       )}
 
-      {error && (
-        <Button onClick={() => navigate("/")} variant="outline" className="w-full">
-          Back to Create
-        </Button>
-      )}
-
-      {isComplete && !error && (
+      {(error || isComplete) && (
         <div className="flex gap-3">
-          <Button onClick={() => navigate("/")} variant="outline" className="flex-1">
+          <Button
+            onClick={() => {
+              useProcessingClipsStore.getState().reset();
+              navigate("/");
+            }}
+            variant="outline"
+            className="flex-1"
+          >
             Back to Create
           </Button>
-          <Button onClick={() => navigate("/library")} className="flex-1">
-            Go to Library
-          </Button>
+          {isComplete && !error && (
+            <Button
+              onClick={() => {
+                useProcessingClipsStore.getState().reset();
+                navigate("/library");
+              }}
+              className="flex-1"
+            >
+              Go to Library
+            </Button>
+          )}
         </div>
       )}
     </div>
