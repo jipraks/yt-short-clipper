@@ -15,6 +15,16 @@ FFmpeg, MediaPipe)
 
 ## Changelog
 
+### v2.0.30-beta (2026-09-15)
+
+- **Persistent processing state** — the Processing Clips page now stores its
+  session (URL, highlights, options, logs, progress) in a Zustand store instead of
+  ephemeral React state. Navigating to Settings (or any other page) and coming back
+  restores the full view; the sidecar keeps running in the background the whole time.
+- **Log toggle on the processing page** — a **Log: On / Off** button (eye icon)
+  sits directly in the Processing Clips header so you can hide or reveal the log
+  console without leaving the screen.
+
 ### v2.0.29-beta (2026-09-15)
 
 - **Appearance settings** — new **Appearance** section in Settings: switch between
