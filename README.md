@@ -1,4 +1,4 @@
-# YT Short Clipper v2
+# YT Short Clipper v3
 
 A Windows desktop app that turns a long-form YouTube video into ready-to-post 9:16
 short-form clips — picking the highlights with an LLM, reframing to portrait, and burning
