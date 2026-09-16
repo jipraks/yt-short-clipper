@@ -15,6 +15,24 @@ FFmpeg, MediaPipe)
 
 ## Changelog
 
+### v2.0.34-beta (2026-09-16)
+
+- **Split screen 70/30** — the default split ratio is now **70% main video (top) /
+  30% webcam (bottom)** (was 55/45), so the host stays dominant in podcast /
+  reaction clips.
+- **Volume balance** — two sliders in the split-screen panel let you set the
+  volume of the top (main) and bottom (webcam) tracks independently (0–100%)
+  *before* they are mixed, so a quiet guest or loud background can be balanced
+  in one pass.
+- **Per-clip progress bar** — the Processing Clips page now shows a live
+  `2/5 selesai · 40%` counter instead of sitting at 0% until the very end. The
+  progress bar fills as each clip finishes rendering.
+- **Cleaner processing log** — per-second `Download progress: X%` lines are no
+  longer written to the log. Download status is reported by a 15-second
+  heartbeat (`⏳ Still downloading: 45% …`) plus the important events
+  (download complete, merge, throttling warnings), so the console is readable
+  while the stall-detection watchdog keeps working underneath.
+
 ### v2.0.31-beta (2026-09-15)
 
 - **Download quality selector** — pick the source video quality before clipping:
