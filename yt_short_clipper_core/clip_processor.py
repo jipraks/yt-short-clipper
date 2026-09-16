@@ -134,7 +134,7 @@ def process_selected_highlights(
         # the ProcessConfirmDialog. Smaller values download less data (halves or
         # quarters the file) but slightly reduce source sharpness. For Shorts
         # (1080x1920 output), 720p is the sweet spot between speed and quality.
-        quality_map = {"1080p": 1080, "720p": 720, "480p": 480, "360p": 360}
+        quality_map = {"1080p": 1080, "720p": 720, "480p": 480, "360p": 360, "240p": 240}
         max_height = quality_map.get(options.get("downloadQuality", "720p"), 720)
         log(f"[{i}/{total}] Download quality: max {max_height}p")
         log(f"[{i}/{total}] Downloading video section {h['start_time']} -> {h['end_time']}...")

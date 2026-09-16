@@ -303,6 +303,13 @@ def _download_section_module(
 
     format_selector = _build_format_selector(max_height)
 
+    # v2.0.32: Ranged section download (download_ranges) was trialled here
+    # (2026.8.19) to fetch only the highlight's time window instead of the
+    # whole 64-min source. It failed in E2E: yt-dlp forces FFmpegFD for
+    # ranged formats → single connection, no progress-hook activity → app
+    # watchdog aborted after 150s. Reverted to full-download + local cut
+    # (tested in v2.0.31); ranges stay a candidate for a future release.
+
     download_state = {
         "last_log_ts": time.monotonic(),
         "last_pct": None,
@@ -325,6 +332,11 @@ def _download_section_module(
         # the raw console/logger rendering is disabled.
         "noprogress": True,
         "hls_prefer_native": True,
+        # NOTE: ranged section download (download_ranges callback) was trialled
+        # on 2026.8.19 but yt-dlp forces FFmpegFD for ranged formats, which
+        # stalls on throttled links with NO progress-hook activity → the app's
+        # own watchdog aborts. Kept full-download + local cut as primary;
+        # ranges may return as an option in a future release after testing.
         # Parallel fragment connections: YouTube throttles non-browser
         # clients per-connection (~a few hundred B/s). Browsers open many
         # parallel connections; we mimic that to bypass the per-connection cap.
@@ -540,14 +552,13 @@ def _download_section_module(
         return output_path
 
     def _do_download() -> str:
-        """Primary native full-download + local cut → fallback (simpler format).
+        """Primary: full native parallel download + local cut → fallback.
 
-        Primary does NOT use download_ranges: ranged downloads route the network
-        I/O through FFmpegFD (ffmpeg, one connection) which gets per-connection
-        throttled (~10-20 KiB/s on Indonesian ISPs). Native download with
-        concurrent_fragment_downloads=8 opens 8 parallel connections and cuts
-        the section locally with ffmpeg -c copy — the throttle is bypassed and
-        the local cut never touches the network.
+        Kept as the tested, reliable path (v2.0.31+): concurrent_fragment_
+        downloads=8 opens parallel connections to bypass YouTube's
+        per-connection throttle, then the section is cut locally with
+        ffmpeg -c copy. Ranged section download was trialled on yt-dlp
+        2026.8.19 but stalls (FFmpegFD, no progress) — see ydl_opts note.
         """
         # Retry-on-WinError-32 loop: the final .part → .mp4 rename can fail on
         # Windows when antivirus / search-indexer briefly locks the file. The
@@ -585,6 +596,7 @@ def _download_section_module(
         log("Retrying with fallback options (simple format + no ranges)...")
         fallback_opts = dict(ydl_opts)
         fallback_opts.pop("download_ranges", None)
+        fallback_opts.pop("downloader", None)
         fallback_opts.pop("force_keyframes_at_cuts", None)
         fallback_opts["format"] = _build_format_selector(max_height)
         download_state["last_log_ts"] = time.monotonic()

@@ -39,6 +39,13 @@ const QUALITY_OPTIONS: { value: DownloadQuality; label: string; badge: string; b
     badgeClass: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
     note: "~85% smaller — fastest, for slow links",
   },
+  {
+    value: "240p",
+    label: "240p",
+    badge: "Tiniest",
+    badgeClass: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
+    note: "~90% smaller — ~200MB & below, softest image",
+  },
 ];
 
 const SAMPLE_IMAGES: Record<ReframeMode, string> = {
