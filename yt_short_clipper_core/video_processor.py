@@ -32,6 +32,12 @@ def _build_format_selector(max_height: int) -> str:
         f"bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
         f"bestvideo[height<={max_height}][vcodec^=avc1]+bestaudio/"
         f"bestvideo[height<={max_height}]+bestaudio/"
+        # 2026-09-16: prefer formats that actually carry audio. On SABR
+        # sessions `best[height<=N]` can resolve to a video-only HLS stream
+        # (no audio at all) — the downstream portrait encoder then failed
+        # with "Output file does not contain any stream". acodec!=none keeps
+        # combined formats with a real audio track ahead of silent ones.
+        f"best[height<={max_height}][acodec!=none]/"
         f"best[height<={max_height}]/best"
     )
 

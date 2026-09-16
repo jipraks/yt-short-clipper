@@ -173,20 +173,45 @@ def convert_to_portrait(
     return output_path
 
 
+def _input_has_audio(ffmpeg_path: str, input_path: str) -> bool:
+    """True if the input contains at least one audio stream.
+
+    2026-09-16 fix: on SABR sessions a 240p download can come back
+    video-only (no audio track). The old code always ran the audio
+    extraction, which then died with ffmpeg's
+    ``Output file does not contain any stream`` — an unexplained crash.
+    Probe the file first; callers skip audio work when this is False.
+    """
+    probe = subprocess.run(
+        [ffmpeg_path, "-hide_banner", "-i", str(input_path)],
+        capture_output=True, creationflags=_SUBPROCESS_FLAGS,
+    )
+    stderr = (probe.stderr or b"").decode(errors="replace")
+    # `ffmpeg -i` prints each stream as "Stream #0:1(und): Audio: aac ..."
+    return "Audio:" in stderr
+
+
 def _encode_with_positions(input_path, output_path, positions, crop_w, crop_h, ffmpeg_path, fps, log):
     cap = cv2.VideoCapture(input_path)
     out_h, out_w = OUTPUT_HEIGHT, OUTPUT_WIDTH
 
     audio_path = Path(output_path).parent / "_temp_audio.aac"
-    audio_proc = subprocess.run([
-        ffmpeg_path, "-y", "-i", input_path,
-        "-vn", "-c:a", "aac", "-b:a", "192k", str(audio_path),
-    ], capture_output=True, creationflags=_SUBPROCESS_FLAGS)
-    if audio_proc.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg audio extraction failed (exit code {audio_proc.returncode}). "
-            f"stderr:\n{(audio_proc.stderr or b'').decode(errors='replace')[-2000:]}"
-        )
+    has_audio = _input_has_audio(ffmpeg_path, str(input_path))
+    if has_audio:
+        audio_proc = subprocess.run([
+            ffmpeg_path, "-y", "-i", input_path,
+            "-vn", "-c:a", "aac", "-b:a", "192k", str(audio_path),
+        ], capture_output=True, creationflags=_SUBPROCESS_FLAGS)
+        if audio_proc.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg audio extraction failed (exit code {audio_proc.returncode}). "
+                f"stderr:\n{(audio_proc.stderr or b'').decode(errors='replace')[-2000:]}"
+            )
+    else:
+        # SABR/manifest quirk: source has no audio track. Don't crash — encode
+        # a silent Short and let the user know. The mux step below is skipped
+        # automatically because audio_path was never created.
+        log("⚠️ Sumber video tidak memiliki track audio — hasil tanpa suara.")
 
     cmd = [
         ffmpeg_path, "-y",
@@ -194,9 +219,13 @@ def _encode_with_positions(input_path, output_path, positions, crop_w, crop_h, f
         "-s", f"{out_w}x{out_h}", "-r", str(fps),
         "-i", "-",
         "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-        "-pix_fmt", "yuv420p", "-c:a", "copy",
-        output_path,
+        "-pix_fmt", "yuv420p",
     ]
+    if has_audio:
+        cmd += ["-c:a", "copy"]
+    else:
+        cmd += ["-an"]
+    cmd.append(output_path)
     proc = subprocess.Popen(
         cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
         creationflags=_SUBPROCESS_FLAGS,
