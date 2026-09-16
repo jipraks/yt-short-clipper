@@ -136,7 +136,7 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
       splitScreen: {
         enabled: splitEnabled && !!splitWebcamPath,
         webcamPath: splitWebcamPath,
-        topRatio: 0.70,
+        topRatio: 0.80,
         mainVolume: splitMainVolume / 100,
         secondVolume: splitSecondVolume / 100,
       },
@@ -350,7 +350,7 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-[var(--color-text-primary)]">Split Screen</p>
                   <p className="text-xs text-[var(--color-text-muted)] truncate">
-                    Podcast style: main video on top, local webcam below (70:30)
+                    Podcast style: main video on top, local webcam below (80:20)
                   </p>
                 </div>
               </div>
@@ -359,6 +359,10 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
 
             {splitEnabled && (
               <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--color-bg-secondary)] space-y-3">
+                <p className="text-[10px] text-[var(--color-text-muted)] italic leading-relaxed">
+                  Main video (top) is auto-reframed to portrait with face tracking (80%);
+                  your video fills the bottom strip in landscape (20%).
+                </p>
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-[var(--color-text-muted)]">Bottom video (webcam / narasumber)</p>
                 </div>

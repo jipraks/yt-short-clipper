@@ -1,8 +1,9 @@
 """Split-screen composition: stack two videos vertically into one 9:16 frame.
 
-Layout (default): main video on TOP (host), second video/webcam on BOTTOM
-(narasumber/reaction). Ratio 70:30 with a thin gold divider between the panes,
-matching the app's gold accent (#fbbf24).
+Layout (default): main video on TOP (host) reframed to a face-tracked portrait
+pane (80%), local webcam/second video on BOTTOM (20%) as a landscape strip.
+A thin gold divider separates the panes, matching the app's gold accent
+(#fbbf24).
 
 Uses ffmpeg ``vstack`` — the same filter proven in the split-screen spike.
 """
@@ -22,9 +23,9 @@ _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 
-# Default pane split: top gets 70% of the height (main video), bottom gets
+# Default pane split: top gets 80% of the height (main video), bottom gets
 # the rest minus the divider. Sums to exactly 1920.
-TOP_RATIO = 0.70
+TOP_RATIO = 0.80
 DIVIDER_PX = 6
 DIVIDER_COLOR = "0xFBBF24"  # gold #fbbf24
 
@@ -83,7 +84,11 @@ def combine_split_screen(
 ) -> str:
     """Stack ``main_video_path`` (top) over ``second_video_path`` (bottom) as 9:16.
 
-    - Each pane is padded (black bars) to keep the full source visible.
+    - Top pane expects a face-tracked portrait crop (1080x{top_h}) that fills
+      the pane edge-to-edge — typically produced by ``convert_to_portrait_pane``.
+      Any other aspect is letterboxed to fit (graceful fallback).
+    - Bottom pane is COVER-CROPPED to a landscape strip (1080x{bottom_h}) so a
+      16:9 or even 9:16 webcam fills the strip with no bars.
     - A thin gold divider separates the panes.
     - Both audio tracks are mixed (amix); missing audio in either file is
       tolerated by falling back to whichever track exists.
@@ -115,12 +120,16 @@ def combine_split_screen(
     inputs += ["-stream_loop", "-1", "-i", second_video_path]
 
     filter_parts = [
-        # Top pane: fit inside top_h, centered (letterbox/pillarbox with black bars)
+        # Top pane: fills the pane when the input is already the pane aspect
+        # (1080x{top_h} face-tracked portrait). Otherwise fit + center with
+        # black bars as a graceful fallback.
         f"[0:v]scale={OUTPUT_WIDTH}:{top_h}:force_original_aspect_ratio=decrease,"
         f"pad={OUTPUT_WIDTH}:{top_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[top]",
-        # Bottom pane: same treatment, then draw the gold divider on its top edge
-        f"[1:v]scale={OUTPUT_WIDTH}:{bottom_h}:force_original_aspect_ratio=decrease,"
-        f"pad={OUTPUT_WIDTH}:{bottom_h}:(ow-iw)/2:(oh-ih)/2,"
+        # Bottom pane: COVER-CROP into a landscape strip (any aspect fills the
+        # 1080x{bottom_h} strip, no bars), then draw the gold divider on its
+        # top edge.
+        f"[1:v]scale={OUTPUT_WIDTH}:{bottom_h}:force_original_aspect_ratio=increase,"
+        f"crop={OUTPUT_WIDTH}:{bottom_h},"
         f"drawbox=x=0:y=0:w=iw:h={DIVIDER_PX}:color={DIVIDER_COLOR}@1:t=fill,setsar=1[bottom]",
         "[top][bottom]vstack=inputs=2,format=yuv420p[v]",
     ]

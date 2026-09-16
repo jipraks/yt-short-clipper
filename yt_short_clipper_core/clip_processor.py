@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .video_processor import download_video_section
-from .portrait import convert_to_portrait, convert_to_portrait_centered
-from .split_screen import combine_split_screen
+from .portrait import convert_to_portrait, convert_to_portrait_centered, convert_to_portrait_pane
+from .split_screen import combine_split_screen, OUTPUT_HEIGHT
 from .hook_generator import generate_hook
 from .caption_generator import generate_captions_from_words
 from .srt_parser import parse_timestamp
@@ -98,9 +98,9 @@ def process_selected_highlights(
         log(f"Split screen disabled: local video not found at {split_webcam_path}")
         split_enabled = False
     try:
-        split_top_ratio = float(split_screen.get("topRatio", 0.70))
+        split_top_ratio = float(split_screen.get("topRatio", 0.80))
     except (TypeError, ValueError):
-        split_top_ratio = 0.70
+        split_top_ratio = 0.80
     # Audio balance for split-screen (0.0-1.0 each). Default 1.0 = source volume.
     try:
         split_main_volume = float(split_screen.get("mainVolume", 1.0))
@@ -162,7 +162,21 @@ def process_selected_highlights(
         # Step 2: Portrait conversion (or split-screen composition)
         portrait_path = str(temp_dir / f"portrait_{i:03d}.mp4")
         if split_enabled:
-            log(f"[{i}/{total}] Split-screen mode: stacking main video + local file (top {split_top_ratio:.0%})")
+            # Split-screen: FIRST reframe the main video into a face-tracked
+            # portrait pane sized to the top pane (1080 x {ratio} of 1920),
+            # so the top half is a true portrait crop with no black bars.
+            # Then stack the local video (cover-cropped landscape strip)
+            # underneath.
+            log(f"[{i}/{total}] Split-screen mode: reframing main video to portrait pane (face tracking)...")
+            pane_path = str(temp_dir / f"split_pane_{i:03d}.mp4")
+            pane_h = int(round(OUTPUT_HEIGHT * split_top_ratio))
+            video_path = convert_to_portrait_pane(
+                video_path, pane_path,
+                output_height=pane_h,
+                log=lambda m: log(f"[{i}/{total}] {m}"),
+            )
+            log(f"[{i}/{total}] Split-screen top pane ready — stacking main video + local file "
+                f"(top {split_top_ratio:.0%} portrait, bottom {1 - split_top_ratio:.0%} landscape)")
             video_path = combine_split_screen(
                 main_video_path=video_path,
                 second_video_path=split_webcam_path,
