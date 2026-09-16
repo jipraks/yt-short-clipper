@@ -117,13 +117,18 @@ def _yt_dlp_progress_hook(d: dict, log: LogFn) -> None:
     yt-dlp's progress dict uses different keys depending on the transport
     (direct HTTP, HLS fragments, DASH). ``_percent_str`` can be empty during
     the first fragment or when the total size is unknown — in that case we
-    compute the percentage from raw counters (see ``_extract_progress``) and,
-    failing that, surface bytes downloaded and speed instead of staying silent
-    (silent = looks like a hang to the user).
+    compute the percentage from raw counters (see ``_extract_progress``).
 
-    Rate-limited: HLS fires this hook per fragment (thousands of times), which
-    would flood the sidecar stdout. We cap at ~1 progress line per second and
-    always pass "finished" through.
+    v2.0.34: per user request, the per-second "Download progress: X%"
+    lines are NO LONGER written to the log — they dilute the console. The
+    heartbeat thread (every 15s, "⏳ Still downloading...") already reports
+    the same percentage, so the user still gets download state without the
+    noise. We still update ``_progress_hook_state`` (rate-limit + throttle
+    warning) and ``finished`` still logs the merge line.
+
+    Rate-limited: HLS fires this hook per fragment (thousands of times),
+    which would flood the sidecar stdout. We cap at ~1 progress line per
+    second and always pass "finished" through.
     """
     status = d.get("status")
     if status == "finished":
@@ -146,13 +151,9 @@ def _yt_dlp_progress_hook(d: dict, log: LogFn) -> None:
     pct, detail = _extract_progress(d)
     if pct is not None:
         _progress_hook_state["last_pct"] = pct
-        suffix = f" ({detail})" if detail else ""
-        log(f"Download progress: {pct}%{suffix}")
         _maybe_warn_throttled(d, log)
-    elif detail:
-        log(f"Download progress: {detail}")
-    else:
-        log("Download progress: starting...")
+    # NOTE: no "Download progress:" log line here (v2.0.34) — the 15s
+    # heartbeat reports it instead. Keep state so the heartbeat has data.
 
 
 def _maybe_warn_throttled(d: dict, log: LogFn) -> None:

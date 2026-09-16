@@ -10,8 +10,12 @@ export interface SplitScreenOptions {
   enabled: boolean;
   /** Absolute path to the local video file (webcam / narasumber). */
   webcamPath: string;
-  /** Height fraction for the TOP pane (main video). Default 0.55. */
+  /** Height fraction for the TOP pane (main video). Default 0.70. */
   topRatio: number;
+  /** Audio volume for the MAIN (top) video, 0.0–1.0. Default 1.0. */
+  mainVolume?: number;
+  /** Audio volume for the SECOND (bottom) video, 0.0–1.0. Default 1.0. */
+  secondVolume?: number;
 }
 
 export interface ProcessOptions {

@@ -1,7 +1,7 @@
 """Split-screen composition: stack two videos vertically into one 9:16 frame.
 
 Layout (default): main video on TOP (host), second video/webcam on BOTTOM
-(narasumber/reaction). Ratio 55:45 with a thin gold divider between the panes,
+(narasumber/reaction). Ratio 70:30 with a thin gold divider between the panes,
 matching the app's gold accent (#fbbf24).
 
 Uses ffmpeg ``vstack`` — the same filter proven in the split-screen spike.
@@ -22,9 +22,9 @@ _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 
-# Default pane split: top gets 55% of the height, bottom gets the rest minus
-# the divider. Sums to exactly 1920.
-TOP_RATIO = 0.55
+# Default pane split: top gets 70% of the height (main video), bottom gets
+# the rest minus the divider. Sums to exactly 1920.
+TOP_RATIO = 0.70
 DIVIDER_PX = 6
 DIVIDER_COLOR = "0xFBBF24"  # gold #fbbf24
 
@@ -77,6 +77,8 @@ def combine_split_screen(
     second_video_path: str,
     output_path: str,
     top_ratio: float = TOP_RATIO,
+    main_volume: float = 1.0,
+    second_volume: float = 1.0,
     log: LogFn | None = None,
 ) -> str:
     """Stack ``main_video_path`` (top) over ``second_video_path`` (bottom) as 9:16.
@@ -85,6 +87,7 @@ def combine_split_screen(
     - A thin gold divider separates the panes.
     - Both audio tracks are mixed (amix); missing audio in either file is
       tolerated by falling back to whichever track exists.
+    - Volume per-input can be set (0.0-1.0) to balance main vs. second audio.
     - Output duration follows the MAIN video; if the second video is shorter
       it is looped. If it is longer it is trimmed.
 
@@ -123,13 +126,13 @@ def combine_split_screen(
     ]
 
     if main_has_audio and second_has_audio:
-        filter_parts.append("[0:a]aresample=48000[a0];[1:a]aresample=48000[a1];[a0][a1]amix=inputs=2:duration=longest:dropout_transition=0[a]")
+        filter_parts.append(f"[0:a]volume={main_volume:.2f},aresample=48000[a0];[1:a]volume={second_volume:.2f},aresample=48000[a1];[a0][a1]amix=inputs=2:duration=longest:dropout_transition=0[a]")
         audio_map = ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"]
     elif main_has_audio:
-        filter_parts.append("[0:a]aresample=48000,anull[a]")
+        filter_parts.append(f"[0:a]volume={main_volume:.2f},aresample=48000,anull[a]")
         audio_map = ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"]
     elif second_has_audio:
-        filter_parts.append("[1:a]aresample=48000,anull[a]")
+        filter_parts.append(f"[1:a]volume={second_volume:.2f},aresample=48000,anull[a]")
         audio_map = ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"]
     else:
         audio_map = ["-an"]

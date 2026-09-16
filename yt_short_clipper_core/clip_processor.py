@@ -98,9 +98,20 @@ def process_selected_highlights(
         log(f"Split screen disabled: local video not found at {split_webcam_path}")
         split_enabled = False
     try:
-        split_top_ratio = float(split_screen.get("topRatio", 0.55))
+        split_top_ratio = float(split_screen.get("topRatio", 0.70))
     except (TypeError, ValueError):
-        split_top_ratio = 0.55
+        split_top_ratio = 0.70
+    # Audio balance for split-screen (0.0-1.0 each). Default 1.0 = source volume.
+    try:
+        split_main_volume = float(split_screen.get("mainVolume", 1.0))
+    except (TypeError, ValueError):
+        split_main_volume = 1.0
+    try:
+        split_second_volume = float(split_screen.get("secondVolume", 1.0))
+    except (TypeError, ValueError):
+        split_second_volume = 1.0
+    split_main_volume = max(0.0, min(2.0, split_main_volume))
+    split_second_volume = max(0.0, min(2.0, split_second_volume))
 
     # Word-level caption timing for the full source video (from the original
     # subtitle track). Empty if unavailable — captions are then skipped.
@@ -157,6 +168,8 @@ def process_selected_highlights(
                 second_video_path=split_webcam_path,
                 output_path=portrait_path,
                 top_ratio=split_top_ratio,
+                main_volume=split_main_volume,
+                second_volume=split_second_volume,
                 log=lambda m: log(f"[{i}/{total}] {m}"),
             )
         else:

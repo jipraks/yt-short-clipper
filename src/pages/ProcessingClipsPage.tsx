@@ -48,6 +48,7 @@ export function ProcessingClipsPage() {
   const isSplitScreen = !!options?.splitScreen?.enabled;
 
   const [copied, setCopied] = useState(false);
+  const [completedClips, setCompletedClips] = useState(0);
   const logEndRef = useRef<HTMLDivElement>(null);
   const startedRef = useRef(false);
 
@@ -123,6 +124,18 @@ export function ProcessingClipsPage() {
           const st = useProcessingClipsStore.getState();
           st.appendLog(message);
           const m = message.toLowerCase();
+          // Per-clip progress: sidecar logs "[i/N] ..." messages. When a clip
+          // is saved, bump the progress bar so the user sees each session
+          // (clip) complete — not just a single jump at the very end.
+          const clipMatch = m.match(/\[(\d+)\/(\d+)\]/);
+          if (clipMatch && m.includes("clip saved")) {
+            const done = Number(clipMatch[1]);
+            const total = Number(clipMatch[2]);
+            if (total > 0) {
+              setCompletedClips(done);
+              st.setProgress(Math.min(99, Math.round((done / total) * 100)));
+            }
+          }
           // Step transitions happen when a step COMPLETES, not when it starts
           if (m.includes("section downloaded")) {
             st.setStep(1);
@@ -273,7 +286,12 @@ export function ProcessingClipsPage() {
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium text-[var(--color-text-secondary)]">Progress</span>
-          <span className="text-sm text-[var(--color-text-muted)]">{Math.round(progress)}%</span>
+          <span className="text-sm text-[var(--color-text-muted)]">
+            {highlights.length > 0 && completedClips > 0 && !isComplete
+              ? `${completedClips}/${highlights.length} selesai · `
+              : ""}
+            {Math.round(progress)}%
+          </span>
         </div>
         <Progress value={progress} />
       </div>

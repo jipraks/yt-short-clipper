@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { X, Film, AlignLeft, Quote, Image as ImageIcon, User, ScanFace, Square, Eye, Sparkles, Zap, MonitorPlay, FolderOpen, DownloadCloud } from "lucide-react";
+import { X, Film, AlignLeft, Quote, Image as ImageIcon, User, ScanFace, Square, Eye, Sparkles, Zap, MonitorPlay, FolderOpen, DownloadCloud, Volume2 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import { Card } from "@/components/ui/card";
 import { useConfigStore } from "@/stores/configStore";
 import type { ReframeMode, CenteredBackground, DownloadQuality } from "@/hooks/processClips";
@@ -89,6 +90,8 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
   const [splitEnabled, setSplitEnabled] = useState(false);
   const [splitWebcamPath, setSplitWebcamPath] = useState("");
   const [splitWebcamName, setSplitWebcamName] = useState("");
+  const [splitMainVolume, setSplitMainVolume] = useState(100);
+  const [splitSecondVolume, setSplitSecondVolume] = useState(100);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
 
   const handlePickWebcam = async () => {
@@ -133,7 +136,9 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
       splitScreen: {
         enabled: splitEnabled && !!splitWebcamPath,
         webcamPath: splitWebcamPath,
-        topRatio: 0.55,
+        topRatio: 0.70,
+        mainVolume: splitMainVolume / 100,
+        secondVolume: splitSecondVolume / 100,
       },
     });
   };
@@ -345,7 +350,7 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-[var(--color-text-primary)]">Split Screen</p>
                   <p className="text-xs text-[var(--color-text-muted)] truncate">
-                    Podcast style: main video on top, local webcam below (55:45)
+                    Podcast style: main video on top, local webcam below (70:30)
                   </p>
                 </div>
               </div>
@@ -353,7 +358,7 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
             </div>
 
             {splitEnabled && (
-              <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--color-bg-secondary)] space-y-2">
+              <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--color-bg-secondary)] space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-[var(--color-text-muted)]">Bottom video (webcam / narasumber)</p>
                 </div>
@@ -369,6 +374,47 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
                     Pick a video file — Split Screen only activates when one is chosen.
                   </p>
                 )}
+
+                {/* Volume balance sliders */}
+                <div className="space-y-3 pt-1 border-t border-[var(--color-border-light)]">
+                  <div className="flex items-center gap-2">
+                    <Volume2 className="w-4 h-4 text-[var(--color-accent)] shrink-0" />
+                    <p className="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">
+                      Volume Balance
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-[var(--color-text-secondary)]">Main video (top)</span>
+                      <span className="text-xs text-[var(--color-text-muted)]">{splitMainVolume}%</span>
+                    </div>
+                    <Slider
+                      value={[splitMainVolume]}
+                      min={0}
+                      max={100}
+                      step={5}
+                      onValueChange={(v) => setSplitMainVolume(v[0] ?? 100)}
+                      aria-label="Main video volume"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-[var(--color-text-secondary)]">Webcam (bottom)</span>
+                      <span className="text-xs text-[var(--color-text-muted)]">{splitSecondVolume}%</span>
+                    </div>
+                    <Slider
+                      value={[splitSecondVolume]}
+                      min={0}
+                      max={100}
+                      step={5}
+                      onValueChange={(v) => setSplitSecondVolume(v[0] ?? 100)}
+                      aria-label="Webcam volume"
+                    />
+                  </div>
+                  <p className="text-[10px] text-[var(--color-text-muted)] italic">
+                    Adjusts each sound volume before mixing. 100% = original volume.
+                  </p>
+                </div>
               </div>
             )}
 
