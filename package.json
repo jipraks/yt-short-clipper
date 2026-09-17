@@ -13,7 +13,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "build:sidecar": "powershell -ExecutionPolicy Bypass -File scripts/build-sidecar.ps1",
+    "build:sidecar": "./scripts/build-sidecar.sh",
     "deps": "powershell -ExecutionPolicy Bypass -File scripts/fetch-deps.ps1",
     "package": "powershell -ExecutionPolicy Bypass -File scripts/package-portable.ps1",
     "release": "npm run build:sidecar && npm run build && npm run tauri build && npm run package",
