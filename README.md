@@ -59,4 +59,4 @@ Full changelog is available in [CHANGELOG.md](./CHANGELOG.md).
 Feel free to open issues or submit pull requests. Please follow the existing code style and add tests where applicable.
 
 ---
-*Built with ❤️ for Jiwa's Studio.*
+*Built with ❤️ dari Nawir_satria Baubau*
