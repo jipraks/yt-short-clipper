@@ -53,13 +53,13 @@ def _words_for_clip(
     return sliced
 
 
-def _run_portrait(input_path: str, output_path: str, options: dict[str, Any], log: LogFn) -> str:
+def _run_portrait(input_path: str, output_path: str, options: dict[str, Any], log: LogFn, gpu_config: dict[str, Any] | None = None) -> str:
     """Run portrait conversion — face-tracked or centered, based on reframeMode."""
     reframe_mode = options.get("reframeMode", "face")
     if reframe_mode == "centered":
         background = options.get("centeredBackground", "black")
-        return convert_to_portrait_centered(input_path, output_path, background=background, log=log)
-    return convert_to_portrait(input_path, output_path, log)
+        return convert_to_portrait_centered(input_path, output_path, background=background, log=log, gpu_config=gpu_config)
+    return convert_to_portrait(input_path, output_path, log=log, gpu_config=gpu_config)
 
 
 def process_selected_highlights(
@@ -72,9 +72,11 @@ def process_selected_highlights(
 ) -> dict[str, Any]:
     """Process selected highlights and return output info.
 
-    options keys: addCaptions, addHook, addWatermark, addCreditWatermark
+    options keys: addCaptions, addHook, addWatermark, addCreditWatermark,
+                  gpuAcceleration (optional, for hardware encoding)
     ai keys: api_key, base_url, model, hook_style (dict, includes duration_seconds)
     """
+    gpu_config = options.get("gpuAcceleration")
     session_path = Path(session_dir)
     clips_dir = session_path / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
@@ -112,6 +114,11 @@ def process_selected_highlights(
         split_second_volume = 1.0
     split_main_volume = max(0.0, min(2.0, split_main_volume))
     split_second_volume = max(0.0, min(2.0, split_second_volume))
+
+    # Position of webcam: "top" or "bottom" (default: "bottom")
+    split_position = split_screen.get("position", "bottom")
+    if split_position not in ("top", "bottom"):
+        split_position = "bottom"
 
     # Word-level caption timing for the full source video (from the original
     # subtitle track). Empty if unavailable — captions are then skipped.
@@ -185,9 +192,11 @@ def process_selected_highlights(
                 main_volume=split_main_volume,
                 second_volume=split_second_volume,
                 log=lambda m: log(f"[{i}/{total}] {m}"),
+                gpu_config=gpu_config,
+                position=split_position,
             )
         else:
-            video_path = _run_portrait(video_path, portrait_path, options, log)
+            video_path = _run_portrait(video_path, portrait_path, options, log, gpu_config)
             log(f"[{i}/{total}] Portrait conversion complete")
 
         # Step 3: Hook generation (text overlay on the opening seconds)
@@ -205,6 +214,7 @@ def process_selected_highlights(
                     duration=hook_duration,
                     hook_style=hook_style,
                     log=log,
+                    gpu_config=gpu_config,
                 )
                 log(f"[{i}/{total}] Hook generation complete")
             else:
@@ -226,6 +236,7 @@ def process_selected_highlights(
                     output_path=caption_output_path,
                     words=clip_words,
                     log=log,
+                    gpu_config=gpu_config,
                 )
                 clip_had_captions = True
                 log(f"[{i}/{total}] Caption generation complete ({len(clip_words)} words)")
@@ -248,6 +259,7 @@ def process_selected_highlights(
                 watermark=wm_config,
                 credit_watermark=credit_config,
                 log=log,
+                gpu_config=gpu_config,
             )
             log(f"[{i}/{total}] Watermark overlay complete")
         else:

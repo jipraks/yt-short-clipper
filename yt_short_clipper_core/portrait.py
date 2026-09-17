@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Any
 
 import cv2
 import numpy as np
@@ -52,6 +52,7 @@ def convert_to_portrait(
     log: LogFn | None = None,
     output_width: int = OUTPUT_WIDTH,
     output_height: int = OUTPUT_HEIGHT,
+    gpu_config: dict[str, Any] | None = None,
 ) -> str:
     log = log or (lambda m: None)
     log(f"Converting to portrait ({output_width}x{output_height}) with MediaPipe Face Landmarker...")
@@ -176,6 +177,7 @@ def convert_to_portrait(
         input_path, output_path, positions, crop_w, crop_h,
         get_ffmpeg_path(), fps, log,
         out_w=output_width, out_h=output_height,
+        gpu_config=gpu_config,
     )
     log(f"Portrait conversion complete: {output_path}")
     return output_path
@@ -226,6 +228,7 @@ def _input_has_audio(ffmpeg_path: str, input_path: str) -> bool:
 def _encode_with_positions(
     input_path, output_path, positions, crop_w, crop_h, ffmpeg_path, fps, log,
     out_w=OUTPUT_WIDTH, out_h=OUTPUT_HEIGHT,
+    gpu_config: dict[str, Any] | None = None,
 ):
     cap = cv2.VideoCapture(input_path)
 
@@ -247,12 +250,37 @@ def _encode_with_positions(
         # automatically because audio_path was never created.
         log("⚠️ Sumber video tidak memiliki track audio — hasil tanpa suara.")
 
+    # Select video encoder based on GPU config
+    gpu_enabled = gpu_config and gpu_config.get("enabled", False) if gpu_config else False
+    enc_name = gpu_config.get("encoder") if gpu_enabled else None
+    enc_preset = gpu_config.get("preset") if gpu_enabled else None
+
+    def build_video_enc_args(name: str | None, preset: str | None) -> list[str]:
+        if name == "h264_nvenc":
+            args = ["-c:v", name]
+            if preset:
+                args += ["-preset", preset]
+            args += ["-rc", "vbr", "-cq", "23"]
+            return args
+        if name:
+            args = ["-c:v", name]
+            if preset:
+                args += ["-preset", preset]
+            return args
+        return ["-c:v", "libx264", "-preset", "fast", "-crf", "18"]
+
+    video_enc_args = build_video_enc_args(enc_name, enc_preset)
+    if enc_name:
+        log(f"Using GPU encoder: {enc_name} (preset={enc_preset})")
+    else:
+        log(f"Using CPU encoder: libx264")
+
     cmd = [
         ffmpeg_path, "-y",
         "-f", "rawvideo", "-pix_fmt", "bgr24",
         "-s", f"{out_w}x{out_h}", "-r", str(fps),
         "-i", "-",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        *video_enc_args,
         "-pix_fmt", "yuv420p",
     ]
     if has_audio:
@@ -380,6 +408,7 @@ def convert_to_portrait_centered(
     output_path: str,
     background: str = "black",
     log: LogFn | None = None,
+    gpu_config: dict[str, Any] | None = None,
 ) -> str:
     """Convert landscape video to 9:16 portrait with the source centered.
 
@@ -422,12 +451,10 @@ def convert_to_portrait_centered(
         )
         filter_flags = ["-vf", vf]
 
-    # Pick encoder — prefer GPU hardware encoder when available
-    from .gpu import detect_gpu
-    gpu_info = detect_gpu()
-    enc = gpu_info.get("encoder", {})
-    enc_name = enc.get("name") if enc.get("available") else None
-    enc_preset = enc.get("preset")
+    # Select video encoder based on GPU config
+    gpu_enabled = gpu_config and gpu_config.get("enabled", False) if gpu_config else False
+    enc_name = gpu_config.get("encoder") if gpu_enabled else None
+    enc_preset = gpu_config.get("preset") if gpu_enabled else None
 
     def build_video_enc_args(name: str | None, preset: str | None) -> list[str]:
         if name == "h264_nvenc":
@@ -444,9 +471,9 @@ def convert_to_portrait_centered(
         return ["-c:v", "libx264", "-preset", "fast", "-crf", "18"]
 
     if enc_name:
-        log(f"Using GPU encoder: {enc_name} (preset={enc_preset}) — {gpu_info['gpu']['name']}")
+        log(f"Using GPU encoder: {enc_name} (preset={enc_preset})")
     else:
-        log(f"Using CPU encoder: libx264 ({enc.get('reason', 'No GPU detected')})")
+        log(f"Using CPU encoder: libx264")
 
     def run_encode(video_enc_args: list[str], tag: str) -> tuple[int, str]:
         cmd = [

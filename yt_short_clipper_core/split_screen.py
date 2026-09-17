@@ -12,7 +12,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Any
 
 from .helpers import get_ffmpeg_path
 
@@ -81,6 +81,8 @@ def combine_split_screen(
     main_volume: float = 1.0,
     second_volume: float = 1.0,
     log: LogFn | None = None,
+    gpu_config: dict[str, Any] | None = None,
+    position: str = "bottom",
 ) -> str:
     """Stack ``main_video_path`` (top) over ``second_video_path`` (bottom) as 9:16.
 
@@ -95,6 +97,8 @@ def combine_split_screen(
     - Volume per-input can be set (0.0-1.0) to balance main vs. second audio.
     - Output duration follows the MAIN video; if the second video is shorter
       it is looped. If it is longer it is trimmed.
+    - ``position``: "bottom" (default) = main video on top, webcam on bottom.
+                    "top" = webcam on top, main video on bottom (portrait+face tracking).
 
     Returns the output path.
     """
@@ -119,20 +123,39 @@ def combine_split_screen(
     # stream_loop makes a short second video repeat; -t on the output trims it.
     inputs += ["-stream_loop", "-1", "-i", second_video_path]
 
-    filter_parts = [
-        # Top pane: fills the pane when the input is already the pane aspect
-        # (1080x{top_h} face-tracked portrait). Otherwise fit + center with
-        # black bars as a graceful fallback.
-        f"[0:v]scale={OUTPUT_WIDTH}:{top_h}:force_original_aspect_ratio=decrease,"
-        f"pad={OUTPUT_WIDTH}:{top_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[top]",
-        # Bottom pane: COVER-CROP into a landscape strip (any aspect fills the
-        # 1080x{bottom_h} strip, no bars), then draw the gold divider on its
-        # top edge.
-        f"[1:v]scale={OUTPUT_WIDTH}:{bottom_h}:force_original_aspect_ratio=increase,"
-        f"crop={OUTPUT_WIDTH}:{bottom_h},"
-        f"drawbox=x=0:y=0:w=iw:h={DIVIDER_PX}:color={DIVIDER_COLOR}@1:t=fill,setsar=1[bottom]",
-        "[top][bottom]vstack=inputs=2,format=yuv420p[v]",
-    ]
+    # Position determines stacking order:
+    # - "bottom" (default): [0:v]=main on top, [1:v]=webcam on bottom
+    # - "top": [1:v]=webcam on top, [0:v]=main on bottom (portrait+face tracking)
+    webcam_on_top = position == "top"
+
+    if webcam_on_top:
+        # Webcam on top (landscape strip), main video on bottom (portrait)
+        # Top pane = webcam (landscape cover-crop)
+        filter_parts = [
+            f"[1:v]scale={OUTPUT_WIDTH}:{top_h}:force_original_aspect_ratio=increase,"
+            f"crop={OUTPUT_WIDTH}:{top_h},"
+            f"drawbox=x=0:y=0:w=iw:h={DIVIDER_PX}:color={DIVIDER_COLOR}@1:t=fill,setsar=1[top]",
+            # Bottom pane = main video (portrait, fit + center)
+            f"[0:v]scale={OUTPUT_WIDTH}:{bottom_h}:force_original_aspect_ratio=decrease,"
+            f"pad={OUTPUT_WIDTH}:{bottom_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[bottom]",
+            "[top][bottom]vstack=inputs=2,format=yuv420p[v]",
+        ]
+    else:
+        # Default: main video on top (portrait), webcam on bottom (landscape strip)
+        filter_parts = [
+            # Top pane: fills the pane when the input is already the pane aspect
+            # (1080x{top_h} face-tracked portrait). Otherwise fit + center with
+            # black bars as a graceful fallback.
+            f"[0:v]scale={OUTPUT_WIDTH}:{top_h}:force_original_aspect_ratio=decrease,"
+            f"pad={OUTPUT_WIDTH}:{top_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[top]",
+            # Bottom pane: COVER-CROP into a landscape strip (any aspect fills the
+            # 1080x{bottom_h} strip, no bars), then draw the gold divider on its
+            # top edge.
+            f"[1:v]scale={OUTPUT_WIDTH}:{bottom_h}:force_original_aspect_ratio=increase,"
+            f"crop={OUTPUT_WIDTH}:{bottom_h},"
+            f"drawbox=x=0:y=0:w=iw:h={DIVIDER_PX}:color={DIVIDER_COLOR}@1:t=fill,setsar=1[bottom]",
+            "[top][bottom]vstack=inputs=2,format=yuv420p[v]",
+        ]
 
     if main_has_audio and second_has_audio:
         filter_parts.append(f"[0:a]volume={main_volume:.2f},aresample=48000[a0];[1:a]volume={second_volume:.2f},aresample=48000[a1];[a0][a1]amix=inputs=2:duration=longest:dropout_transition=0[a]")
@@ -146,13 +169,38 @@ def combine_split_screen(
     else:
         audio_map = ["-an"]
 
+    # Select video encoder based on GPU config
+    gpu_enabled = gpu_config and gpu_config.get("enabled", False) if gpu_config else False
+    enc_name = gpu_config.get("encoder") if gpu_enabled else None
+    enc_preset = gpu_config.get("preset") if gpu_enabled else None
+
+    def build_video_enc_args(name: str | None, preset: str | None) -> list[str]:
+        if name == "h264_nvenc":
+            args = ["-c:v", name]
+            if preset:
+                args += ["-preset", preset]
+            args += ["-rc", "vbr", "-cq", "23"]
+            return args
+        if name:
+            args = ["-c:v", name]
+            if preset:
+                args += ["-preset", preset]
+            return args
+        return ["-c:v", "libx264", "-preset", "fast", "-crf", "18"]
+
+    video_enc_args = build_video_enc_args(enc_name, enc_preset)
+    if enc_name:
+        log(f"Using GPU encoder: {enc_name} (preset={enc_preset})")
+    else:
+        log(f"Using CPU encoder: libx264")
+
     cmd = [
         ffmpeg_path,
         *inputs,
         "-filter_complex", ";".join(filter_parts),
         "-map", "[v]",
         *audio_map,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        *video_enc_args,
         "-t", f"{main_dur:.3f}",
         "-movflags", "+faststart",
         output_path,

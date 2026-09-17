@@ -16,6 +16,8 @@ export interface SplitScreenOptions {
   mainVolume?: number;
   /** Audio volume for the SECOND (bottom) video, 0.0–1.0. Default 1.0. */
   secondVolume?: number;
+  /** Position of the webcam/second video: "top" or "bottom". Default "bottom". */
+  position?: "top" | "bottom";
 }
 
 export interface ProcessOptions {
@@ -28,6 +30,12 @@ export interface ProcessOptions {
   /** Source resolution cap for the download — 720p by default (smaller file). */
   downloadQuality?: DownloadQuality;
   splitScreen?: SplitScreenOptions;
+  /** GPU acceleration settings passed to the sidecar for hardware encoding. */
+  gpuAcceleration?: {
+    enabled: boolean;
+    encoder?: string | null;
+    preset?: string | null;
+  };
 }
 
 export type ProcessClipsEvent = { type: "log"; message: string };

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any, Callable
 
 from .helpers import get_ffmpeg_path
+from .gpu import build_video_enc_args
 
 LogFn = Callable[[str], None]
 
@@ -92,6 +93,7 @@ def generate_captions_from_words(
     output_path: str,
     words: list[dict[str, Any]],
     log: LogFn | None = None,
+    gpu_config: dict[str, Any] | None = None,
 ) -> str:
     """Burn word-by-word captions into a video from pre-computed word timing.
 
@@ -113,6 +115,13 @@ def generate_captions_from_words(
     ffmpeg_path = get_ffmpeg_path()
     temp_dir = Path(output_path).parent
 
+    # Select video encoder based on GPU config
+    video_enc_args = build_video_enc_args(gpu_config)
+    if gpu_config and gpu_config.get("available"):
+        log(f"Using GPU encoder: {gpu_config.get('name')} (preset={gpu_config.get('preset')})")
+    else:
+        log(f"Using CPU encoder: libx264")
+
     transcript = SimpleNamespace(
         words=[SimpleNamespace(word=w["word"], start=w["start"], end=w["end"]) for w in words],
         segments=[],
@@ -131,7 +140,7 @@ def generate_captions_from_words(
         ffmpeg_path, "-y",
         "-i", input_video_path,
         "-vf", f"ass='{ass_path_escaped}'",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        *video_enc_args,
         "-c:a", "copy",
         output_path,
     ]

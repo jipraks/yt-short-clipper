@@ -81,12 +81,16 @@ export function ProcessingClipsPage() {
       const hookStyle = config.hookStyle;
       const watermarkConfig = config.watermark;
       const creditConfig = config.creditWatermark;
+      const gpuAcceleration = config.gpuAcceleration;
 
       const result = (await processClips({
         url,
         highlights: hls,
         sessionDir,
-        options,
+        options: {
+          ...options,
+          gpuAcceleration,
+        },
         ai: {
           api_key: config.ai.apiKey,
           base_url: config.ai.baseUrl,

@@ -326,3 +326,31 @@ def detect_gpu() -> dict:
         }
 
     return {"gpu": gpu, "encoder": encoder}
+
+
+def build_video_enc_args(gpu_config: dict | None) -> list[str]:
+    """Build ffmpeg video encoder args from gpu_config.
+
+    gpu_config is the dict returned by detect_gpu()['encoder'], or None for CPU.
+    Returns list of ffmpeg args (e.g. ['-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', '23']).
+    """
+    if not gpu_config or not gpu_config.get("available"):
+        return ["-c:v", "libx264", "-preset", "fast", "-crf", "18"]
+
+    name = gpu_config.get("name")
+    preset = gpu_config.get("preset")
+
+    if name == "h264_nvenc":
+        args = ["-c:v", name]
+        if preset:
+            args += ["-preset", preset]
+        args += ["-rc", "vbr", "-cq", "23"]
+        return args
+
+    if name:
+        args = ["-c:v", name]
+        if preset:
+            args += ["-preset", preset]
+        return args
+
+    return ["-c:v", "libx264", "-preset", "fast", "-crf", "18"]

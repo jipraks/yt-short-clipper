@@ -147,6 +147,7 @@ def handle_request(request: dict[str, Any]) -> dict[str, Any]:
     if command == "generate_social_title":
         import json as _json
         from openai import OpenAI
+        from openai import BadRequestError
 
         title = payload.get("title", "")
         hook_text = payload.get("hook_text", "")
@@ -180,6 +181,9 @@ Requirements:
 Return ONLY valid JSON in this exact format:
 {{"title": "...", "description": "..."}}"""
 
+        # Try with response_format first (OpenAI, compatible providers)
+        # If it fails with unsupported parameter error, retry without it.
+        response = None
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -191,17 +195,28 @@ Return ONLY valid JSON in this exact format:
                 max_tokens=500,
                 response_format={"type": "json_object"},
             )
-        except Exception:
-            # Retry without response_format for providers that don't support it
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": f"You are a social media expert who creates viral content for TikTok/Reels/Shorts in {language}. Always respond with valid JSON only."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.8,
-                max_tokens=500,
-            )
+        except BadRequestError as e:
+            # Check if error is about unsupported response_format
+            err_msg = str(e).lower()
+            if "response_format" in err_msg or "unsupported" in err_msg or "not supported" in err_msg:
+                write_json({"event": "log", "message": f"Provider doesn't support response_format, retrying without it: {e}"})
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": f"You are a social media expert who creates viral content for TikTok/Reels/Shorts in {language}. Always respond with valid JSON only."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.8,
+                    max_tokens=500,
+                )
+            else:
+                raise SidecarError(f"AI request failed: {e}")
+        except Exception as e:
+            # For other errors (auth, rate limit, network), don't retry - surface the error
+            raise SidecarError(f"AI request failed: {e}")
+
+        if response is None:
+            raise SidecarError("AI request failed: no response")
 
         raw = response.choices[0].message.content.strip() if response.choices else ""
 

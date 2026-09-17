@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .helpers import get_ffmpeg_path
+from .gpu import build_video_enc_args
 
 LogFn = Callable[[str], None]
 
@@ -18,6 +19,7 @@ def apply_watermark(
     watermark: dict[str, Any] | None = None,
     credit_watermark: dict[str, Any] | None = None,
     log: LogFn | None = None,
+    gpu_config: dict[str, Any] | None = None,
 ) -> str:
     """Apply logo watermark and/or credit text overlay to video.
 
@@ -37,6 +39,13 @@ def apply_watermark(
         import shutil
         shutil.copy2(input_video_path, output_path)
         return output_path
+
+    # Select video encoder based on GPU config
+    video_enc_args = build_video_enc_args(gpu_config)
+    if gpu_config and gpu_config.get("available"):
+        log(f"Using GPU encoder: {gpu_config.get('name')} (preset={gpu_config.get('preset')})")
+    else:
+        log(f"Using CPU encoder: libx264")
 
     # Build ffmpeg filter chain
     filters = []
@@ -112,7 +121,7 @@ def apply_watermark(
         ffmpeg_path, "-y",
         *inputs,
         "-filter_complex", filter_complex,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        *video_enc_args,
         "-c:a", "copy",
         output_path,
     ]
