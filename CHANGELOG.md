@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.0.37-beta] - 2026-09-17
+### Fixed
+- **Progress bar sync bug** — progress bar now updates in real-time during video encoding (portrait conversion) and split-screen composition. Previously it stayed at 0% until the very end when "clip saved" log appeared.
+- Added real-time encoding progress tracking via "Encoding portrait: XX%" log messages.
+- Added split-screen composition progress detection.
+
+### Updated
+- Version bump to v2.0.37-beta across all config files.
+
 ## [2.0.36-beta] - 2026-09-17
 ### Added
 - **`scripts/build-sidecar.sh`** — one-command PyInstaller build for the Windows sidecar binary (x86_64-pc-windows-msvc), outputs to `src-tauri/binaries/ytclip-sidecar-x86_64-pc-windows-msvc.exe`.

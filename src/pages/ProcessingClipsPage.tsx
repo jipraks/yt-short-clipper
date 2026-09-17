@@ -124,9 +124,26 @@ export function ProcessingClipsPage() {
           const st = useProcessingClipsStore.getState();
           st.appendLog(message);
           const m = message.toLowerCase();
-          // Per-clip progress: sidecar logs "[i/N] ..." messages. When a clip
-          // is saved, bump the progress bar so the user sees each session
-          // (clip) complete — not just a single jump at the very end.
+
+          // Real-time encoding progress (portrait conversion) — fires repeatedly during encoding
+          const encMatch = m.match(/encoding portrait:\s*(\d+)%/);
+          if (encMatch) {
+            const encPct = Number(encMatch[1]);
+            if (encPct > 0) {
+              // Map encoding progress to overall progress (0-90% for encoding, rest for other steps)
+              // Assuming encoding is the bulk of work, cap at 90% until clip saved
+              const overall = Math.min(90, Math.round((completedClips / highlights.length) * 90) + Math.round((encPct / 100) * (90 / highlights.length)));
+              st.setProgress(overall);
+            }
+          }
+
+          // Split-screen composition progress
+          if (m.includes("composing split screen")) {
+            // Split screen is the final video composition step (~90-95%)
+            st.setProgress(Math.min(95, st.progress + 5));
+          }
+
+          // Per-clip progress: when a clip is fully saved, bump the progress bar
           const clipMatch = m.match(/\[(\d+)\/(\d+)\]/);
           if (clipMatch && m.includes("clip saved")) {
             const done = Number(clipMatch[1]);
