@@ -1,6 +1,14 @@
 # Changelog
 
-## [2.0.35-beta] - 2026-09-17
+## [2.0.36-beta] - 2026-09-17
+### Added
+- **`scripts/build-sidecar.sh`** — one-command PyInstaller build for the Windows sidecar binary (x86_64-pc-windows-msvc), outputs to `src-tauri/binaries/ytclip-sidecar-x86_64-pc-windows-msvc.exe`.
+- **Face Landmarker task model** (`models/face_landmarker.task`, ~3.6 MB) bundled into Tauri bundle — enables on-device face detection for portrait/reframe mode without downloading at runtime.
+
+### Updated
+- `package.json` sidecar build script hook added (`npm run build:sidecar`).
+
+## [2.0.35-beta] - 2026-09-16
 ### Updated
 - Split‑screen layout changed to portrait mode 9:16 (1080×1920).
 - Top pane now occupies **80 %** of the height (1536 px) with refined face‑tracking (MediaPipe Face Landmarker) ensuring the subject stays centered.
