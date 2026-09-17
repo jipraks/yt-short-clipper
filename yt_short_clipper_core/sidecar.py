@@ -203,7 +203,10 @@ Return ONLY valid JSON in this exact format:
                 max_tokens=500,
             )
 
-        raw = response.choices[0].message.content.strip() if response.choices else "{}"
+        raw = response.choices[0].message.content.strip() if response.choices else ""
+
+        if not raw:
+            raise SidecarError("AI returned empty response (no choices)")
 
         # Strip markdown code fences if present
         if raw.startswith("```"):
@@ -212,13 +215,19 @@ Return ONLY valid JSON in this exact format:
 
         try:
             parsed = _json.loads(raw)
-            return {
-                "title": parsed.get("title", ""),
-                "description": parsed.get("description", ""),
-            }
+            title = parsed.get("title", "").strip()
+            description = parsed.get("description", "").strip()
+            if not title and not description:
+                raise SidecarError("AI returned empty JSON: expected non-empty title or description")
+            return {"title": title, "description": description}
+        except SidecarError:
+            raise
         except Exception:
             # Fallback: return raw text as title
-            return {"title": raw, "description": ""}
+            stripped = raw.strip()
+            if not stripped:
+                raise SidecarError("AI returned empty response")
+            return {"title": stripped, "description": ""}
 
     if command == "detect_gpu":
         from yt_short_clipper_core.gpu import detect_gpu
