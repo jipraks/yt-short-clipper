@@ -51,9 +51,13 @@ def apply_watermark(
     inputs = ["-i", input_video_path]
     filter_parts = []
 
-    # Determine a safe font path (fallback to DejaVuSans if available)
-    default_font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-    font_path = default_font if Path(default_font).exists() else None
+    # Determine a safe font path (fallback to common fonts if available)
+    possible_fonts = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+    ]
+    font_path = next((p for p in possible_fonts if Path(p).exists()), None)
 
     if has_logo:
         logo_path = watermark["image_path"]
@@ -79,6 +83,9 @@ def apply_watermark(
         opacity = credit_watermark.get("opacity", 0.7)
         pos_x = credit_watermark.get("position_x", 0.03)
         pos_y = credit_watermark.get("position_y", 0.92)
+        # Ensure credit text is not overlapped by UI buttons (avoid very low y)
+        if pos_y > 0.9:
+            pos_y = 0.85
 
         # Convert hex color to ffmpeg format (remove #)
         ff_color = color.lstrip("#")
@@ -95,12 +102,12 @@ def apply_watermark(
         # Escape for ffmpeg
         escaped_display = display_text.replace("'", "\\'").replace(":", "\\:")
         # Build drawtext filter with background box for readability
-        fontfile_part = f":fontfile={font_path}" if font_path else ""
+        font_option = f":fontfile={font_path}" if font_path else ":font=Sans"
         credit_filter = (
             f"{input_label}drawtext="
             f"text='{escaped_display}':"
             f"fontsize={font_size}:"
-            f"fontcolor=0x{ff_color}{alpha_hex}{fontfile_part}:"
+            f"fontcolor=0x{ff_color}{alpha_hex}{font_option}:"
             f"x=w*{pos_x}:y=h*{pos_y}:"
             f"box=1:boxcolor=black@0.5:boxborderw=5:"
             f"shadowcolor=black@0.5:shadowx=1:shadowy=1"
