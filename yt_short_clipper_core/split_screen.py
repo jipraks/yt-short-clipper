@@ -186,7 +186,7 @@ def combine_split_screen(
             if preset:
                 args += ["-preset", preset]
             return args
-        return ["-c:v", "libx264", "-preset", "fast", "-crf", "18"]
+        return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "18"]
 
     video_enc_args = build_video_enc_args(enc_name, enc_preset)
     if enc_name:
