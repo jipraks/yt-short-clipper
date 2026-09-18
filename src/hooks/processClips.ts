@@ -25,6 +25,8 @@ export interface ProcessOptions {
   addHook: boolean;
   addWatermark: boolean;
   addCreditWatermark: boolean;
+  creditText?: string;
+  captionStyle?: string;
   reframeMode: ReframeMode;
   centeredBackground: CenteredBackground;
   /** Source resolution cap for the download — 720p by default (smaller file). */

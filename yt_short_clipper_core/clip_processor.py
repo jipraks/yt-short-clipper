@@ -91,6 +91,7 @@ def process_selected_highlights(
     add_captions = options.get("addCaptions", False)
     add_watermark = options.get("addWatermark", False)
     add_credit_watermark = options.get("addCreditWatermark", False)
+    caption_style = options.get("captionStyle", "Modern Yellow")
 
     # Split screen mode: stack a local video (webcam) under the main video.
     split_screen = options.get("splitScreen") or {}
@@ -235,6 +236,7 @@ def process_selected_highlights(
                     input_video_path=video_path,
                     output_path=caption_output_path,
                     words=clip_words,
+                    caption_style=caption_style,
                     log=log,
                     gpu_config=gpu_config,
                 )

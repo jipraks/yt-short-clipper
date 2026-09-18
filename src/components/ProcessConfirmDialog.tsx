@@ -77,6 +77,8 @@ interface ProcessConfirmDialogProps {
   onCancel: () => void;
 }
 
+export const CAPTION_STYLES = ["Modern Yellow", "Neon Green", "Boxed White", "Impact Shadow", "Gold Outline", "Pink Outline"];
+
 export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onConfirm, onCancel }: ProcessConfirmDialogProps) {
   const { config } = useConfigStore();
 
@@ -84,7 +86,9 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
   const [addHook, setAddHook] = useState(true);
   const [addWatermark, setAddWatermark] = useState(config.watermark.enabled);
   const [addCreditWatermark, setAddCreditWatermark] = useState(config.creditWatermark.enabled);
+  const [creditText, setCreditText] = useState(config.creditWatermark.text);
   const [reframeMode, setReframeMode] = useState<ReframeMode>("face");
+  const [captionStyle, setCaptionStyle] = useState("Modern Yellow");
   const [centeredBackground, setCenteredBackground] = useState<CenteredBackground>("black");
   const [downloadQuality, setDownloadQuality] = useState<DownloadQuality>("720p");
   const [splitEnabled, setSplitEnabled] = useState(false);
@@ -130,6 +134,8 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
       addHook,
       addWatermark,
       addCreditWatermark,
+      creditText: addCreditWatermark ? creditText : undefined,
+      captionStyle,
       reframeMode,
       centeredBackground,
       downloadQuality,
@@ -422,8 +428,62 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
               </div>
             )}
 
+              {/* Credit watermark toggle & text input */}
+              <div className="space-y-2">
+                <div
+                  className="flex items-center justify-between gap-3 p-3 rounded-[var(--radius-sm)] bg-[var(--color-bg-secondary)]"
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <User className="w-5 h-5 text-[var(--color-accent)] shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-[var(--color-text-primary)]">
+                        Credit Text
+                      </p>
+                      <p className="text-xs text-[var(--color-text-muted)] truncate">
+                        Source channel credit overlay
+                      </p>
+                    </div>
+                  </div>
+                  <Switch checked={addCreditWatermark} onCheckedChange={setAddCreditWatermark} />
+                </div>
+                {addCreditWatermark && (
+                  <input
+                    value={creditText}
+                    onChange={(e) => setCreditText(e.target.value)}
+                    className="w-full px-3 py-2 text-sm bg-[var(--color-bg-secondary)] rounded-[var(--radius-sm)] border border-[var(--color-border-light)] focus:outline-none focus:border-[var(--color-accent)]"
+                    placeholder="e.g. Source: {channel}"
+                  />
+                )}
+              </div>
+
+              {/* Caption style selector (only if captions enabled) */}
+              {addCaptions && (
+                <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--color-bg-secondary)] space-y-3">
+                  <div className="flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-[var(--color-accent)] shrink-0" />
+                    <p className="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">Caption Style</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {CAPTION_STYLES.map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setCaptionStyle(s)}
+                        className={`px-2 py-1.5 rounded-[var(--radius-sm)] border text-[10px] font-medium transition-colors ${
+                          captionStyle === s
+                            ? "border-[var(--color-accent)] bg-[var(--color-bg-primary)] text-[var(--color-accent)]"
+                            : "border-transparent bg-[var(--color-bg-primary)] text-[var(--color-text-muted)] hover:border-[var(--color-border-light)]"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2">
-              {options.map((opt) => (
+              {options.filter(o => o.key !== "addCreditWatermark").map((opt) => (
                 <div
                   key={opt.key}
                   className="flex items-center justify-between gap-3 p-3 rounded-[var(--radius-sm)] bg-[var(--color-bg-secondary)]"
