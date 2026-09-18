@@ -1,0 +1,43 @@
+name: Build and Release yt‑short‑clipper
+
+on:
+  push:
+    branches: [main, gh-action-build]
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri app (Linux)
+        run: npm run tauri build
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yt-short-clipper-linux
+          path: src-tauri/target/release/bundle/*.tar.gz
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: yt‑short‑clipper ${{ github.ref_name }}
+          files: src‑tauri/target/release/bundle/**/*.tar.gz
