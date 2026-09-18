@@ -232,13 +232,18 @@ Return ONLY valid JSON in this exact format:
             parsed = _json.loads(raw)
             title = parsed.get("title", "").strip()
             description = parsed.get("description", "").strip()
+            # If both are empty, fall back to using the original clip title/hook as a sensible default.
             if not title and not description:
-                raise SidecarError("AI returned empty JSON: expected non-empty title or description")
+                # Use payload's original title as fallback title, and description as hook text.
+                fallback_title = payload.get("title", "").strip()
+                fallback_desc = payload.get("hook_text", payload.get("description", "")).strip()
+                if fallback_title:
+                    title = fallback_title
+                if fallback_desc:
+                    description = fallback_desc
             return {"title": title, "description": description}
-        except SidecarError:
-            raise
         except Exception:
-            # Fallback: return raw text as title
+            # If JSON parsing fails completely, treat raw content as title.
             stripped = raw.strip()
             if not stripped:
                 raise SidecarError("AI returned empty response")
