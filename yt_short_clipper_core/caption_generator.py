@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any, Callable
 
 from .helpers import get_ffmpeg_path
+from .gpu import build_video_enc_args
 
 LogFn = Callable[[str], None]
 
@@ -24,10 +25,44 @@ def _format_ass_time(seconds: float) -> str:
     return f"{hours}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
 
 
-def _create_ass_subtitle(transcript: SimpleNamespace, output_path: str, time_offset: float = 0) -> None:
+def _create_ass_subtitle(transcript: SimpleNamespace, output_path: str, time_offset: float = 0, style_name: str = "Modern Yellow") -> None:
     """Create ASS subtitle file with CapCut-style word-by-word highlighting."""
 
-    ass_content = """[Script Info]
+    # Define 6 styles
+    styles = {
+        "Modern Yellow": {
+            "font": "Arial Black", "size": 65, "color": "&H00FFFFFF", "outline": "&H00000000", 
+            "highlight": "&H00FFFF", "border": 4, "shadow": 2
+        },
+        "Neon Green": {
+            "font": "Arial Black", "size": 65, "color": "&H00FFFFFF", "outline": "&H00000000", 
+            "highlight": "&H00FF00", "border": 4, "shadow": 2
+        },
+        "Boxed White": {
+            "font": "Arial Black", "size": 65, "color": "&H00000000", "outline": "&H00FFFFFF", 
+            "highlight": "&H000000", "border": 0, "shadow": 0, "bg_box": True
+        },
+        "Impact Shadow": {
+            "font": "Impact", "size": 75, "color": "&H00FFFFFF", "outline": "&H00000000", 
+            "highlight": "&H3B82F6", "border": 0, "shadow": 4
+        },
+        "Gold Outline": {
+            "font": "Arial Black", "size": 70, "color": "&H00FFFFFF", "outline": "&H0000FFFF", 
+            "highlight": "&H00FFFF", "border": 3, "shadow": 1
+        },
+        "Pink Outline": {
+            "font": "Arial Black", "size": 60, "color": "&H00FFFFFF", "outline": "&H00FF00FF", 
+            "highlight": "&H00FFFF", "border": 4, "shadow": 2
+        }
+    }
+
+    s = styles.get(style_name, styles["Modern Yellow"])
+    highlight_color = s["highlight"]
+    
+    border_style = 3 if s.get("bg_box") else 1 # 3 = Opaque box
+    back_color = "&H00FFFFFF" if s.get("bg_box") else "&H80000000"
+
+    ass_content = f"""[Script Info]
 Title: Auto-generated captions
 ScriptType: v4.00+
 WrapStyle: 0
@@ -37,7 +72,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial Black,65,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,50,50,400,1
+Style: Default,{s['font']},{s['size']},{s['color']},&H000000FF,{s['outline']},{back_color},-1,0,0,0,100,100,0,0,{border_style},{s['border']},{s['shadow']},2,50,50,400,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -63,8 +98,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 for k, w in enumerate(chunk):
                     word_text = w.word.strip().upper()
                     if k == j:
-                        # Yellow highlight for current word (BGR: &H00FFFF)
-                        text_parts.append(f"{{\\c&H00FFFF&}}{word_text}{{\\c&HFFFFFF&}}")
+                        # Highlight for current word
+                        text_parts.append(f"{{\\c{highlight_color}&}}{word_text}{{\\c{s['color']}&}}")
                     else:
                         text_parts.append(word_text)
 
@@ -91,7 +126,9 @@ def generate_captions_from_words(
     input_video_path: str,
     output_path: str,
     words: list[dict[str, Any]],
+    caption_style: str = "Modern Yellow",
     log: LogFn | None = None,
+    gpu_config: dict[str, Any] | None = None,
 ) -> str:
     """Burn word-by-word captions into a video from pre-computed word timing.
 
@@ -113,6 +150,13 @@ def generate_captions_from_words(
     ffmpeg_path = get_ffmpeg_path()
     temp_dir = Path(output_path).parent
 
+    # Select video encoder based on GPU config
+    video_enc_args = build_video_enc_args(gpu_config)
+    if gpu_config and gpu_config.get("available"):
+        log(f"Using GPU encoder: {gpu_config.get('name')} (preset={gpu_config.get('preset')})")
+    else:
+        log(f"Using CPU encoder: libx264")
+
     transcript = SimpleNamespace(
         words=[SimpleNamespace(word=w["word"], start=w["start"], end=w["end"]) for w in words],
         segments=[],
@@ -121,7 +165,7 @@ def generate_captions_from_words(
     # Step 1: Generate ASS subtitle
     log("Generating subtitle file...")
     ass_file = str(temp_dir / "captions.ass")
-    _create_ass_subtitle(transcript, ass_file, time_offset=0)
+    _create_ass_subtitle(transcript, ass_file, time_offset=0, style_name=caption_style)
 
     # Step 2: Burn subtitles into video
     log("Burning captions into video...")
@@ -131,7 +175,7 @@ def generate_captions_from_words(
         ffmpeg_path, "-y",
         "-i", input_video_path,
         "-vf", f"ass='{ass_path_escaped}'",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        *video_enc_args,
         "-c:a", "copy",
         output_path,
     ]

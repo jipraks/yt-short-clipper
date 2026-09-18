@@ -2,14 +2,42 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 
 export type ReframeMode = "face" | "centered";
 export type CenteredBackground = "black" | "blurred";
+/** Source resolution cap for the YouTube download. Smaller = faster download. */
+export type DownloadQuality = "1080p" | "720p" | "480p" | "360p" | "240p";
+
+export interface SplitScreenOptions {
+  /** Stack a local video (webcam) under the main YouTube video. */
+  enabled: boolean;
+  /** Absolute path to the local video file (webcam / narasumber). */
+  webcamPath: string;
+  /** Height fraction for the TOP pane (main video). Default 0.80. */
+  topRatio: number;
+  /** Audio volume for the MAIN (top) video, 0.0–1.0. Default 1.0. */
+  mainVolume?: number;
+  /** Audio volume for the SECOND (bottom) video, 0.0–1.0. Default 1.0. */
+  secondVolume?: number;
+  /** Position of the webcam/second video: "top" or "bottom". Default "bottom". */
+  position?: "top" | "bottom";
+}
 
 export interface ProcessOptions {
   addCaptions: boolean;
   addHook: boolean;
   addWatermark: boolean;
   addCreditWatermark: boolean;
+  creditText?: string;
+  captionStyle?: string;
   reframeMode: ReframeMode;
   centeredBackground: CenteredBackground;
+  /** Source resolution cap for the download — 720p by default (smaller file). */
+  downloadQuality?: DownloadQuality;
+  splitScreen?: SplitScreenOptions;
+  /** GPU acceleration settings passed to the sidecar for hardware encoding. */
+  gpuAcceleration?: {
+    enabled: boolean;
+    encoder?: string | null;
+    preset?: string | null;
+  };
 }
 
 export type ProcessClipsEvent = { type: "log"; message: string };

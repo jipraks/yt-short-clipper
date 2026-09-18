@@ -44,6 +44,7 @@ $Sidecar     = Join-Path $Bin "ytclip-sidecar-x86_64-pc-windows-msvc.exe"
 $Ffmpeg      = Join-Path $Bin "ffmpeg\ffmpeg.exe"
 $Deno        = Join-Path $Bin "bin\deno.exe"
 $Model       = Join-Path $Bin "models\face_landmarker.task"
+$FontsDir    = Join-Path $Root "src-tauri\fonts"
 
 # --- Verify required artifacts exist ---
 $required = [ordered]@{
@@ -52,6 +53,7 @@ $required = [ordered]@{
     "ffmpeg    (npm run deps)"                         = $Ffmpeg
     "deno      (npm run deps)"                         = $Deno
     "model     (face_landmarker.task)"                = $Model
+    "fonts     (src-tauri\fonts\*.ttf)"               = (Get-ChildItem -Path $FontsDir -Filter *.ttf -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
 }
 $missing = @()
 foreach ($k in $required.Keys) {
@@ -78,6 +80,7 @@ New-Item -ItemType Directory -Path $Stage -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $Stage "ffmpeg") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $Stage "bin") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $Stage "models") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $Stage "fonts") -Force | Out-Null
 
 # --- Copy the full payload ---
 Copy-Item -LiteralPath $AppExe   -Destination (Join-Path $Stage "yt-short-clipper-v2.exe") -Force
@@ -85,6 +88,7 @@ Copy-Item -LiteralPath $Sidecar  -Destination (Join-Path $Stage $SidecarName) -F
 Copy-Item -LiteralPath $Ffmpeg   -Destination (Join-Path $Stage "ffmpeg\ffmpeg.exe") -Force
 Copy-Item -LiteralPath $Deno     -Destination (Join-Path $Stage "bin\deno.exe") -Force
 Copy-Item -LiteralPath $Model    -Destination (Join-Path $Stage "models\face_landmarker.task") -Force
+Copy-Item -Path (Join-Path $FontsDir "*") -Destination (Join-Path $Stage "fonts\") -Force
 Copy-Item -LiteralPath $WebView2 -Destination (Join-Path $Stage "MicrosoftEdgeWebview2Setup.exe") -Force
 
 # --- run.bat (literal here-string; %errorlevel% must stay verbatim) ---
@@ -181,10 +185,11 @@ if (Test-Path -LiteralPath $FullZip) { Remove-Item -Force $FullZip }
 Write-Host "[package] Compressing FULL zip..."
 Compress-Archive -Path (Join-Path $Stage "*") -DestinationPath $FullZip -CompressionLevel Optimal
 
-# --- Update zip: only the artifacts that change between releases ---
+# --- Update zip: artifacts that change between releases + fonts (needed for Hook Style dropdown) ---
 $UpdateItems = @(
     (Join-Path $Stage "yt-short-clipper-v2.exe"),
     (Join-Path $Stage $SidecarName),
+    (Join-Path $Stage "fonts"),
     (Join-Path $Stage "run.bat"),
     (Join-Path $Stage "PANDUAN.txt")
 )

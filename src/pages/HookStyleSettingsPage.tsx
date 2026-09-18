@@ -260,17 +260,28 @@ export function HookStyleSettingsPage() {
                 </div>
               ) : (
                 <>
-                  <select
-                    value={fontName}
-                    onChange={(e) => handleFontSelect(e.target.value)}
-                    className="w-full h-10 px-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-border-focus)]"
-                  >
-                    {fonts.map((f) => (
-                      <option key={f.name} value={f.name}>
-                        {f.name}
-                      </option>
-                    ))}
-                  </select>
+                  {fonts.length === 0 ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+                        <span>Bundled fonts not found — showing system font.</span>
+                      </div>
+                      <p className="text-xs text-[var(--color-text-muted)]/70">
+                        Reinstall or update the app to get the bundled fonts (Gatchina, Super Hockey, Super Kidpop, etc.).
+                      </p>
+                    </div>
+                  ) : (
+                    <select
+                      value={fontName}
+                      onChange={(e) => handleFontSelect(e.target.value)}
+                      className="w-full h-10 px-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-border-focus)]"
+                    >
+                      {fonts.map((f) => (
+                        <option key={f.name} value={f.name}>
+                          {f.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
 
                   {/* Font preview samples */}
                   {fonts.length > 0 && (

@@ -157,9 +157,17 @@ export function ClipDetailPage() {
         // Lets the backend match the language this session was generated in.
         sessionDir: state.sessionDir,
       });
+      if (!result?.title && !result?.description) {
+        toast.error("AI mengembalikan respons kosong. Coba model atau prompt berbeda.");
+        return;
+      }
       if (result.title) setPostTitle(result.title);
       if (result.description) setPostDescription(result.description);
-      toast.success("Title & description generated");
+      const hasTitle = !!result?.title;
+      const hasDesc = !!result?.description;
+      if (hasTitle || hasDesc) {
+        toast.success(hasTitle && hasDesc ? "Title & description generated" : hasTitle ? "Title generated" : "Description generated");
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Generation failed: ${msg}`);

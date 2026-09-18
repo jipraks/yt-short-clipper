@@ -7,6 +7,9 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeftOpen,
+  Sun,
+  Moon,
+  Clapperboard,
 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import { cn } from "@/lib/utils";
@@ -19,12 +22,13 @@ import { open as openUrl } from "@tauri-apps/plugin-shell";
 const navItems = [
   { to: "/", icon: PlusCircle, label: "Create" },
   { to: "/library", icon: FolderOpen, label: "Library" },
+  { to: "/processing-clips", icon: Clapperboard, label: "Processing" },
   { to: "/ai-models", icon: Bot, label: "AI Models" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
 export function Sidebar() {
-  const { sidebarCollapsed, toggleSidebar, availableUpdate } = useAppStore();
+  const { sidebarCollapsed, toggleSidebar, availableUpdate, theme, setTheme } = useAppStore();
   const [showAdvertise, setShowAdvertise] = useState(false);
 
   // Render from cache (or the built-in defaults) on the first paint, then
@@ -99,7 +103,7 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Advertise + version + collapse toggle */}
+      {/* Advertise + theme + version + collapse toggle */}
       <div className="p-3 border-t border-[var(--color-border-light)]">
         {!sidebarCollapsed && (
           <>
@@ -126,20 +130,45 @@ export function Sidebar() {
           </>
         )}
 
-        <button
-          onClick={toggleSidebar}
-          className="flex items-center justify-center w-full gap-2 px-3 py-2 rounded-[var(--radius-sm)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-all duration-200 cursor-pointer"
-          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {sidebarCollapsed ? (
-            <PanelLeftOpen className="w-5 h-5" />
-          ) : (
-            <>
-              <PanelLeftClose className="w-5 h-5" />
-              <span className="text-xs">Collapse</span>
-            </>
-          )}
-        </button>
+        <div className={cn("flex items-center gap-1", sidebarCollapsed ? "flex-col" : "justify-between")}>
+          {/* Theme toggle */}
+          <button
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-all duration-200 cursor-pointer",
+              sidebarCollapsed && "px-0 justify-center"
+            )}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {theme === "dark" ? (
+              <Sun className="w-4 h-4" />
+            ) : (
+              <Moon className="w-4 h-4" />
+            )}
+            {!sidebarCollapsed && (
+              <span className="text-xs">{theme === "dark" ? "Light" : "Dark"}</span>
+            )}
+          </button>
+
+          {/* Collapse toggle */}
+          <button
+            onClick={toggleSidebar}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-all duration-200 cursor-pointer",
+              sidebarCollapsed && "px-0 justify-center w-full"
+            )}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {sidebarCollapsed ? (
+              <PanelLeftOpen className="w-5 h-5" />
+            ) : (
+              <>
+                <PanelLeftClose className="w-5 h-5" />
+                <span className="text-xs">Collapse</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {showAdvertise && <AdvertiseDialog onClose={() => setShowAdvertise(false)} />}

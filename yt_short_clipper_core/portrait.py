@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Any
 
 import cv2
 import numpy as np
@@ -50,9 +50,12 @@ def convert_to_portrait(
     input_path: str,
     output_path: str,
     log: LogFn | None = None,
+    output_width: int = OUTPUT_WIDTH,
+    output_height: int = OUTPUT_HEIGHT,
+    gpu_config: dict[str, Any] | None = None,
 ) -> str:
     log = log or (lambda m: None)
-    log("Converting to portrait (9:16) with MediaPipe Face Landmarker...")
+    log(f"Converting to portrait ({output_width}x{output_height}) with MediaPipe Face Landmarker...")
 
     cap = cv2.VideoCapture(input_path)
     if not cap.isOpened():
@@ -66,10 +69,12 @@ def convert_to_portrait(
 
     log(f"Source: {orig_w}x{orig_h} @ {fps:.1f}fps, {total_frames} frames")
 
-    # 9:16 crop keeps full height; width = height * (1080/1920). Clamp so a
-    # source narrower than 9:16 just uses the full width (no negative range).
+    # Portrait crop keeps full height; width = height * (output_w / output_h).
+    # For full 9:16 output this is the classic narrow window; for a split-screen
+    # top pane (1080x1536) the window is wider (less aggressive crop). Clamp so
+    # a source narrower than the aspect just uses the full width (no negative).
     crop_h = orig_h
-    crop_w = min(orig_w, max(2, int(round(orig_h * OUTPUT_WIDTH / OUTPUT_HEIGHT))))
+    crop_w = min(orig_w, max(2, int(round(orig_h * output_width / output_height))))
     log(f"Crop window: {crop_w}x{crop_h} (horizontal tracking range: {orig_w - crop_w}px)")
 
     # Create Face Landmarker using Tasks API
@@ -168,35 +173,121 @@ def convert_to_portrait(
     log(f"Face tracking complete: {len(positions)} positions computed "
         f"({detected} with face, {no_face_frames} without = {pct:.0f}% no-face)")
 
-    _encode_with_positions(input_path, output_path, positions, crop_w, crop_h, get_ffmpeg_path(), fps, log)
+    _encode_with_positions(
+        input_path, output_path, positions, crop_w, crop_h,
+        get_ffmpeg_path(), fps, log,
+        out_w=output_width, out_h=output_height,
+        gpu_config=gpu_config,
+    )
     log(f"Portrait conversion complete: {output_path}")
     return output_path
 
 
-def _encode_with_positions(input_path, output_path, positions, crop_w, crop_h, ffmpeg_path, fps, log):
+def convert_to_portrait_pane(
+    input_path: str,
+    output_path: str,
+    log: LogFn | None = None,
+    output_height: int = 1536,
+) -> str:
+    """Reframe a video for the SPLIT-SCREEN top pane: face-tracked portrait crop.
+
+    Full 9:16 portrait is 1080x1920; the split-screen top pane is 1080 wide by
+    ``output_height`` tall (80% of 1920 = 1536 by default). The crop window is
+    computed from the pane's aspect, so the result fills the pane edge-to-edge
+    (no black bars) while the MediaPipe face tracking keeps the subject framed.
+    """
+    log = log or (lambda m: None)
+    log("Reframing main video to portrait pane (face-tracked, "
+        f"1080x{output_height})...")
+    convert_to_portrait(
+        input_path, output_path, log=log,
+        output_width=1080, output_height=output_height,
+    )
+    log(f"Split-pane portrait conversion complete: {output_path}")
+    return output_path
+
+
+def _input_has_audio(ffmpeg_path: str, input_path: str) -> bool:
+    """True if the input contains at least one audio stream.
+
+    2026-09-16 fix: on SABR sessions a 240p download can come back
+    video-only (no audio track). The old code always ran the audio
+    extraction, which then died with ffmpeg's
+    ``Output file does not contain any stream`` — an unexplained crash.
+    Probe the file first; callers skip audio work when this is False.
+    """
+    probe = subprocess.run(
+        [ffmpeg_path, "-hide_banner", "-i", str(input_path)],
+        capture_output=True, creationflags=_SUBPROCESS_FLAGS,
+    )
+    stderr = (probe.stderr or b"").decode(errors="replace")
+    # `ffmpeg -i` prints each stream as "Stream #0:1(und): Audio: aac ..."
+    return "Audio:" in stderr
+
+
+def _encode_with_positions(
+    input_path, output_path, positions, crop_w, crop_h, ffmpeg_path, fps, log,
+    out_w=OUTPUT_WIDTH, out_h=OUTPUT_HEIGHT,
+    gpu_config: dict[str, Any] | None = None,
+):
     cap = cv2.VideoCapture(input_path)
-    out_h, out_w = OUTPUT_HEIGHT, OUTPUT_WIDTH
 
     audio_path = Path(output_path).parent / "_temp_audio.aac"
-    audio_proc = subprocess.run([
-        ffmpeg_path, "-y", "-i", input_path,
-        "-vn", "-c:a", "aac", "-b:a", "192k", str(audio_path),
-    ], capture_output=True, creationflags=_SUBPROCESS_FLAGS)
-    if audio_proc.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg audio extraction failed (exit code {audio_proc.returncode}). "
-            f"stderr:\n{(audio_proc.stderr or b'').decode(errors='replace')[-2000:]}"
-        )
+    has_audio = _input_has_audio(ffmpeg_path, str(input_path))
+    if has_audio:
+        audio_proc = subprocess.run([
+            ffmpeg_path, "-y", "-i", input_path,
+            "-vn", "-c:a", "aac", "-b:a", "192k", str(audio_path),
+        ], capture_output=True, creationflags=_SUBPROCESS_FLAGS)
+        if audio_proc.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg audio extraction failed (exit code {audio_proc.returncode}). "
+                f"stderr:\n{(audio_proc.stderr or b'').decode(errors='replace')[-2000:]}"
+            )
+    else:
+        # SABR/manifest quirk: source has no audio track. Don't crash — encode
+        # a silent Short and let the user know. The mux step below is skipped
+        # automatically because audio_path was never created.
+        log("⚠️ Sumber video tidak memiliki track audio — hasil tanpa suara.")
+
+    # Select video encoder based on GPU config
+    gpu_enabled = gpu_config and gpu_config.get("enabled", False) if gpu_config else False
+    enc_name = gpu_config.get("encoder") if gpu_enabled else None
+    enc_preset = gpu_config.get("preset") if gpu_enabled else None
+
+    def build_video_enc_args(name: str | None, preset: str | None) -> list[str]:
+        if name == "h264_nvenc":
+            args = ["-c:v", name]
+            if preset:
+                args += ["-preset", preset]
+            args += ["-rc", "vbr", "-cq", "23"]
+            return args
+        if name:
+            args = ["-c:v", name]
+            if preset:
+                args += ["-preset", preset]
+            return args
+        return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "18"]
+
+    video_enc_args = build_video_enc_args(enc_name, enc_preset)
+    if enc_name:
+        log(f"Using GPU encoder: {enc_name} (preset={enc_preset})")
+    else:
+        log(f"Using CPU encoder: libx264")
 
     cmd = [
         ffmpeg_path, "-y",
         "-f", "rawvideo", "-pix_fmt", "bgr24",
         "-s", f"{out_w}x{out_h}", "-r", str(fps),
         "-i", "-",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-        "-pix_fmt", "yuv420p", "-c:a", "copy",
-        output_path,
+        *video_enc_args,
+        "-pix_fmt", "yuv420p",
     ]
+    if has_audio:
+        cmd += ["-c:a", "copy"]
+    else:
+        cmd += ["-an"]
+    cmd.append(output_path)
     proc = subprocess.Popen(
         cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
         creationflags=_SUBPROCESS_FLAGS,
@@ -317,6 +408,7 @@ def convert_to_portrait_centered(
     output_path: str,
     background: str = "black",
     log: LogFn | None = None,
+    gpu_config: dict[str, Any] | None = None,
 ) -> str:
     """Convert landscape video to 9:16 portrait with the source centered.
 
@@ -359,12 +451,10 @@ def convert_to_portrait_centered(
         )
         filter_flags = ["-vf", vf]
 
-    # Pick encoder — prefer GPU hardware encoder when available
-    from .gpu import detect_gpu
-    gpu_info = detect_gpu()
-    enc = gpu_info.get("encoder", {})
-    enc_name = enc.get("name") if enc.get("available") else None
-    enc_preset = enc.get("preset")
+    # Select video encoder based on GPU config
+    gpu_enabled = gpu_config and gpu_config.get("enabled", False) if gpu_config else False
+    enc_name = gpu_config.get("encoder") if gpu_enabled else None
+    enc_preset = gpu_config.get("preset") if gpu_enabled else None
 
     def build_video_enc_args(name: str | None, preset: str | None) -> list[str]:
         if name == "h264_nvenc":
@@ -378,12 +468,12 @@ def convert_to_portrait_centered(
             if preset:
                 args += ["-preset", preset]
             return args
-        return ["-c:v", "libx264", "-preset", "fast", "-crf", "18"]
+        return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "18"]
 
     if enc_name:
-        log(f"Using GPU encoder: {enc_name} (preset={enc_preset}) — {gpu_info['gpu']['name']}")
+        log(f"Using GPU encoder: {enc_name} (preset={enc_preset})")
     else:
-        log(f"Using CPU encoder: libx264 ({enc.get('reason', 'No GPU detected')})")
+        log(f"Using CPU encoder: libx264")
 
     def run_encode(video_enc_args: list[str], tag: str) -> tuple[int, str]:
         cmd = [

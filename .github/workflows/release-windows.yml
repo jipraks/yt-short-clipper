@@ -1,0 +1,73 @@
+name: Build \\& Release Windows EXE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build front‑end (Vite)
+        run: npm run build
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build sidecar EXE with PyInstaller
+        run: |
+          pyinstaller --onefile yt_short_clipper_core/sidecar.py \\
+            --name ytclip-sidecar-x86_64-pc-windows-msvc \\
+            --distpath build/sidecar
+
+      - name: Prepare Portable ZIP (≈263 MB)
+        run: |
+          powershell -Command "Compress-Archive -Path BUILD_GUIDE.md,CHANGELOG.md,LICENSE,README.md,dist,src,src-tauri,build\\sidecar\\ytclip-sidecar-x86_64-pc-windows-msvc.exe,yt_short_clipper_core,models,requirements.txt,package.json,package-lock.json,node_modules -DestinationPath yt-short-clipper-2.0.40-portable.zip"
+
+      - name: Prepare Update ZIP (≈131 MB)
+        run: |
+          powershell -Command "Compress-Archive -Path dist,build\\sidecar\\ytclip-sidecar-x86_64-pc-windows-msvc.exe,yt_short_clipper_core,models,requirements.txt,package.json,package-lock.json -DestinationPath yt-short-clipper-2.0.40-update.zip"
+
+      - name: Create/Update Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.0.40
+          name: YT Short Clipper v2.0.40 (Windows)
+          body: |
+            Automated Windows build – EXE sidecar and zip packages.
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+      - name: Upload Portable ZIP
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.0.40
+          files: yt-short-clipper-2.0.40-portable.zip
+
+      - name: Upload Update ZIP
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.0.40
+          files: yt-short-clipper-2.0.40-update.zip

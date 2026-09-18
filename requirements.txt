@@ -6,6 +6,10 @@ openai>=1.0.0
 
 # YouTube download
 yt-dlp>=2026.8.19
+# Required by yt-dlp >=2026 for YouTube "impersonation" — curl_cffi lets
+# yt-dlp present a real Chrome TLS fingerprint so YouTube cannot fingerprint
+# the client as a bot (which causes throttling and extraction hangs).
+curl_cffi>=0.7.0
 
 # Video / image processing
 opencv-python>=4.8.0
@@ -14,6 +18,8 @@ Pillow>=10.0.0
 
 # MediaPipe face tracking
 mediapipe>=0.10.0
+# MediaPipe Tasks imports matplotlib at module level (drawing_utils)
+matplotlib>=3.8.0
 
 # HTTP requests (Whisper API, Repliz API)
 requests>=2.31.0

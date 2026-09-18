@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .video_processor import download_video_section
-from .portrait import convert_to_portrait, convert_to_portrait_centered
+from .portrait import convert_to_portrait, convert_to_portrait_centered, convert_to_portrait_pane
+from .split_screen import combine_split_screen, OUTPUT_HEIGHT
 from .hook_generator import generate_hook
 from .caption_generator import generate_captions_from_words
 from .srt_parser import parse_timestamp
@@ -52,13 +53,13 @@ def _words_for_clip(
     return sliced
 
 
-def _run_portrait(input_path: str, output_path: str, options: dict[str, Any], log: LogFn) -> str:
+def _run_portrait(input_path: str, output_path: str, options: dict[str, Any], log: LogFn, gpu_config: dict[str, Any] | None = None) -> str:
     """Run portrait conversion — face-tracked or centered, based on reframeMode."""
     reframe_mode = options.get("reframeMode", "face")
     if reframe_mode == "centered":
         background = options.get("centeredBackground", "black")
-        return convert_to_portrait_centered(input_path, output_path, background=background, log=log)
-    return convert_to_portrait(input_path, output_path, log)
+        return convert_to_portrait_centered(input_path, output_path, background=background, log=log, gpu_config=gpu_config)
+    return convert_to_portrait(input_path, output_path, log=log, gpu_config=gpu_config)
 
 
 def process_selected_highlights(
@@ -71,9 +72,11 @@ def process_selected_highlights(
 ) -> dict[str, Any]:
     """Process selected highlights and return output info.
 
-    options keys: addCaptions, addHook, addWatermark, addCreditWatermark
+    options keys: addCaptions, addHook, addWatermark, addCreditWatermark,
+                  gpuAcceleration (optional, for hardware encoding)
     ai keys: api_key, base_url, model, hook_style (dict, includes duration_seconds)
     """
+    gpu_config = options.get("gpuAcceleration")
     session_path = Path(session_dir)
     clips_dir = session_path / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
@@ -88,6 +91,35 @@ def process_selected_highlights(
     add_captions = options.get("addCaptions", False)
     add_watermark = options.get("addWatermark", False)
     add_credit_watermark = options.get("addCreditWatermark", False)
+    caption_style = options.get("captionStyle", "Modern Yellow")
+
+    # Split screen mode: stack a local video (webcam) under the main video.
+    split_screen = options.get("splitScreen") or {}
+    split_enabled = bool(split_screen.get("enabled")) and bool(split_screen.get("webcamPath"))
+    split_webcam_path = str(split_screen.get("webcamPath", ""))
+    if split_enabled and not Path(split_webcam_path).exists():
+        log(f"Split screen disabled: local video not found at {split_webcam_path}")
+        split_enabled = False
+    try:
+        split_top_ratio = float(split_screen.get("topRatio", 0.80))
+    except (TypeError, ValueError):
+        split_top_ratio = 0.80
+    # Audio balance for split-screen (0.0-1.0 each). Default 1.0 = source volume.
+    try:
+        split_main_volume = float(split_screen.get("mainVolume", 1.0))
+    except (TypeError, ValueError):
+        split_main_volume = 1.0
+    try:
+        split_second_volume = float(split_screen.get("secondVolume", 1.0))
+    except (TypeError, ValueError):
+        split_second_volume = 1.0
+    split_main_volume = max(0.0, min(2.0, split_main_volume))
+    split_second_volume = max(0.0, min(2.0, split_second_volume))
+
+    # Position of webcam: "top" or "bottom" (default: "bottom")
+    split_position = split_screen.get("position", "bottom")
+    if split_position not in ("top", "bottom"):
+        split_position = "bottom"
 
     # Word-level caption timing for the full source video (from the original
     # subtitle track). Empty if unavailable — captions are then skipped.
@@ -117,6 +149,13 @@ def process_selected_highlights(
         section_path = str(temp_dir / f"section_{i:03d}.mp4")
 
         # Step 1: Download video section
+        # Download quality: 1080p (default) / 720p / 480p — set by the user in
+        # the ProcessConfirmDialog. Smaller values download less data (halves or
+        # quarters the file) but slightly reduce source sharpness. For Shorts
+        # (1080x1920 output), 720p is the sweet spot between speed and quality.
+        quality_map = {"1080p": 1080, "720p": 720, "480p": 480, "360p": 360, "240p": 240}
+        max_height = quality_map.get(options.get("downloadQuality", "720p"), 720)
+        log(f"[{i}/{total}] Download quality: max {max_height}p")
         log(f"[{i}/{total}] Downloading video section {h['start_time']} -> {h['end_time']}...")
         video_path = download_video_section(
             url=url,
@@ -124,13 +163,42 @@ def process_selected_highlights(
             end_time=h["end_time"],
             output_path=section_path,
             log=log,
+            max_height=max_height,
         )
         log(f"[{i}/{total}] Section downloaded: {video_path}")
 
-        # Step 2: Portrait conversion
+        # Step 2: Portrait conversion (or split-screen composition)
         portrait_path = str(temp_dir / f"portrait_{i:03d}.mp4")
-        video_path = _run_portrait(video_path, portrait_path, options, log)
-        log(f"[{i}/{total}] Portrait conversion complete")
+        if split_enabled:
+            # Split-screen: FIRST reframe the main video into a face-tracked
+            # portrait pane sized to the top pane (1080 x {ratio} of 1920),
+            # so the top half is a true portrait crop with no black bars.
+            # Then stack the local video (cover-cropped landscape strip)
+            # underneath.
+            log(f"[{i}/{total}] Split-screen mode: reframing main video to portrait pane (face tracking)...")
+            pane_path = str(temp_dir / f"split_pane_{i:03d}.mp4")
+            pane_h = int(round(OUTPUT_HEIGHT * split_top_ratio))
+            video_path = convert_to_portrait_pane(
+                video_path, pane_path,
+                output_height=pane_h,
+                log=lambda m: log(f"[{i}/{total}] {m}"),
+            )
+            log(f"[{i}/{total}] Split-screen top pane ready — stacking main video + local file "
+                f"(top {split_top_ratio:.0%} portrait, bottom {1 - split_top_ratio:.0%} landscape)")
+            video_path = combine_split_screen(
+                main_video_path=video_path,
+                second_video_path=split_webcam_path,
+                output_path=portrait_path,
+                top_ratio=split_top_ratio,
+                main_volume=split_main_volume,
+                second_volume=split_second_volume,
+                log=lambda m: log(f"[{i}/{total}] {m}"),
+                gpu_config=gpu_config,
+                position=split_position,
+            )
+        else:
+            video_path = _run_portrait(video_path, portrait_path, options, log, gpu_config)
+            log(f"[{i}/{total}] Portrait conversion complete")
 
         # Step 3: Hook generation (text overlay on the opening seconds)
         if add_hook:
@@ -147,6 +215,7 @@ def process_selected_highlights(
                     duration=hook_duration,
                     hook_style=hook_style,
                     log=log,
+                    gpu_config=gpu_config,
                 )
                 log(f"[{i}/{total}] Hook generation complete")
             else:
@@ -167,7 +236,9 @@ def process_selected_highlights(
                     input_video_path=video_path,
                     output_path=caption_output_path,
                     words=clip_words,
+                    caption_style=caption_style,
                     log=log,
+                    gpu_config=gpu_config,
                 )
                 clip_had_captions = True
                 log(f"[{i}/{total}] Caption generation complete ({len(clip_words)} words)")
@@ -190,6 +261,7 @@ def process_selected_highlights(
                 watermark=wm_config,
                 credit_watermark=credit_config,
                 log=log,
+                gpu_config=gpu_config,
             )
             log(f"[{i}/{total}] Watermark overlay complete")
         else:

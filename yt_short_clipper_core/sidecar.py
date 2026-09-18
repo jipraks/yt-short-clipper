@@ -11,13 +11,32 @@ Response:
 """
 
 import json
+import os
 import sys
+import threading
+import time
 import traceback
 from typing import Any
 
 
 class SidecarError(Exception):
     pass
+
+
+def _stdout():
+    """Return a writable binary stdout, even in PyInstaller windowed mode.
+
+    PyInstaller with console=False sets sys.stdout to None on Windows; the
+    parent Rust process still passes a pipe on fd 1, so open that directly.
+    We keep one wrapper open for the lifetime of the process (fdopen'd
+    handles must not be garbage-collected between writes).
+    """
+    if sys.stdout is not None:
+        return sys.stdout.buffer
+    _stdout._stream = getattr(_stdout, "_stream", None)
+    if _stdout._stream is None:
+        _stdout._stream = os.fdopen(1, "wb", buffering=0)
+    return _stdout._stream
 
 
 def _session_output_language(session_dir: Any) -> str:
@@ -128,6 +147,7 @@ def handle_request(request: dict[str, Any]) -> dict[str, Any]:
     if command == "generate_social_title":
         import json as _json
         from openai import OpenAI
+        from openai import BadRequestError
 
         title = payload.get("title", "")
         hook_text = payload.get("hook_text", "")
@@ -161,6 +181,9 @@ Requirements:
 Return ONLY valid JSON in this exact format:
 {{"title": "...", "description": "..."}}"""
 
+        # Try with response_format first (OpenAI, compatible providers)
+        # If it fails with unsupported parameter error, retry without it.
+        response = None
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -172,19 +195,33 @@ Return ONLY valid JSON in this exact format:
                 max_tokens=500,
                 response_format={"type": "json_object"},
             )
-        except Exception:
-            # Retry without response_format for providers that don't support it
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": f"You are a social media expert who creates viral content for TikTok/Reels/Shorts in {language}. Always respond with valid JSON only."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.8,
-                max_tokens=500,
-            )
+        except BadRequestError as e:
+            # Check if error is about unsupported response_format
+            err_msg = str(e).lower()
+            if "response_format" in err_msg or "unsupported" in err_msg or "not supported" in err_msg:
+                write_json({"event": "log", "message": f"Provider doesn't support response_format, retrying without it: {e}"})
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": f"You are a social media expert who creates viral content for TikTok/Reels/Shorts in {language}. Always respond with valid JSON only."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.8,
+                    max_tokens=500,
+                )
+            else:
+                raise SidecarError(f"AI request failed: {e}")
+        except Exception as e:
+            # For other errors (auth, rate limit, network), don't retry - surface the error
+            raise SidecarError(f"AI request failed: {e}")
 
-        raw = response.choices[0].message.content.strip() if response.choices else "{}"
+        if response is None:
+            raise SidecarError("AI request failed: no response")
+
+        raw = response.choices[0].message.content.strip() if response.choices else ""
+
+        if not raw:
+            raise SidecarError("AI returned empty response (no choices)")
 
         # Strip markdown code fences if present
         if raw.startswith("```"):
@@ -193,13 +230,24 @@ Return ONLY valid JSON in this exact format:
 
         try:
             parsed = _json.loads(raw)
-            return {
-                "title": parsed.get("title", ""),
-                "description": parsed.get("description", ""),
-            }
+            title = parsed.get("title", "").strip()
+            description = parsed.get("description", "").strip()
+            # If both are empty, fall back to using the original clip title/hook as a sensible default.
+            if not title and not description:
+                # Use payload's original title as fallback title, and description as hook text.
+                fallback_title = payload.get("title", "").strip()
+                fallback_desc = payload.get("hook_text", payload.get("description", "")).strip()
+                if fallback_title:
+                    title = fallback_title
+                if fallback_desc:
+                    description = fallback_desc
+            return {"title": title, "description": description}
         except Exception:
-            # Fallback: return raw text as title
-            return {"title": raw, "description": ""}
+            # If JSON parsing fails completely, treat raw content as title.
+            stripped = raw.strip()
+            if not stripped:
+                raise SidecarError("AI returned empty response")
+            return {"title": stripped, "description": ""}
 
     if command == "detect_gpu":
         from yt_short_clipper_core.gpu import detect_gpu
@@ -274,15 +322,89 @@ def make_response(request_id: Any, ok: bool, result: Any = None, error: str | No
 
 
 def write_json(obj: dict[str, Any]) -> None:
-    # Force UTF-8 to avoid Windows cp1252 encoding errors with Unicode chars
-    raw = json.dumps(obj, ensure_ascii=False)
-    sys.stdout.buffer.write(raw.encode("utf-8"))
-    sys.stdout.buffer.write(b"\n")
-    sys.stdout.buffer.flush()
+    """Write a JSON line to stdout — NEVER raises.
+
+    Windows pitfall #1: yt-dlp progress hooks (per-fragment) can flood this
+    call thousands of times per second; if the parent pipe buffer fills, the
+    write raises OSError EINVAL which — if unhandled inside an exception
+    handler — kills the entire sidecar. So we:
+      * serialize with a lock (yt-dlp worker threads + main thread),
+      * rate-limit (drop excess, count them),
+      * fall back to stderr if stdout is broken.
+    """
+    # Rate limit: max ~30 writes/sec. Dropped logs are counted, not raised.
+    _now = time.monotonic()
+    if _now - _rate_limiter["window_start"] >= 1.0:
+        # new 1-second window
+        _rate_limiter["window_start"] = _now
+        _rate_limiter["count"] = 0
+    if _rate_limiter["count"] >= 30:
+        _rate_limiter["dropped"] += 1
+        # Report the droppage once every ~5s so the user can still see the log is alive
+        if _rate_limiter["dropped"] % 150 == 1:
+            _safe_stderr_write(
+                f"[sidecar] log rate-limited: dropped {_rate_limiter['dropped']} msgs\n"
+            )
+        return
+    _rate_limiter["count"] += 1
+
+    try:
+        raw = json.dumps(obj, ensure_ascii=False)
+        data = raw.encode("utf-8") + b"\n"
+        with _io_lock:
+            _stdout().write(data)
+            _stdout().flush()
+    except OSError:
+        # stdout pipe is dead/broken (parent closed it, buffer overflow,
+        # console teardown). Fall back to stderr; if that fails too, drop.
+        _safe_stderr_write(
+            "[sidecar:stdout-broken] " + json.dumps(obj, ensure_ascii=False) + "\n"
+        )
+    except Exception:
+        # json serialization edge cases / anything else — never kill the loop
+        pass
+
+
+_io_lock = threading.Lock()
+_rate_limiter: dict = {"count": 0, "dropped": 0, "window_start": 0.0}
+
+
+def _safe_stderr_write(msg: str) -> None:
+    try:
+        if sys.stderr is None:
+            with os.fdopen(2, "w", encoding="utf-8", errors="replace") as f:
+                f.write(msg)
+                f.flush()
+        else:
+            sys.stderr.buffer.write(msg.encode("utf-8"))
+            sys.stderr.buffer.flush()
+    except OSError:
+        pass
 
 
 def run_loop() -> None:
-    for line in sys.stdin:
+    # PyInstaller windowed mode (console=False) sets sys.stdin = None even
+    # when the parent Rust process passes a pipe on fd 0.  Read from the raw
+    # file descriptor directly so the stdin protocol still works.
+    if sys.stdin is None:
+        import io as _io
+
+        try:
+            _raw_stdin = _io.TextIOWrapper(
+                os.fdopen(0, "rb", buffering=0),
+                encoding="utf-8",
+                line_buffering=True,
+            )
+        except OSError:
+            # No pipe on fd 0 at all (sidecar launched standalone, e.g. by
+            # double-clicking the exe).  There is nothing to read; exit
+            # quietly instead of raising a confusing traceback.
+            _safe_stderr_write("[sidecar] no stdin available — exiting\n")
+            return
+    else:
+        _raw_stdin = sys.stdin
+
+    for line in _raw_stdin:
         line = line.strip()
         if not line:
             continue
@@ -294,7 +416,7 @@ def run_loop() -> None:
             result = handle_request(request)
             write_json(make_response(request_id, True, result=result))
         except Exception as e:
-            print(traceback.format_exc(), file=sys.stderr, flush=True)
+            _safe_stderr_write(traceback.format_exc())
             write_json(make_response(request_id, False, error=str(e)))
 
 

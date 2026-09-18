@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .helpers import get_ffmpeg_path
+from .gpu import build_video_enc_args
 
 LogFn = Callable[[str], None]
 
@@ -64,6 +65,7 @@ def generate_hook(
     duration: float = DEFAULT_HOOK_DURATION,
     hook_style: dict[str, Any] | None = None,
     log: LogFn | None = None,
+    gpu_config: dict[str, Any] | None = None,
 ) -> str:
     """Overlay hook text on top of the opening seconds of the input video.
 
@@ -81,6 +83,13 @@ def generate_hook(
     style = {**DEFAULT_HOOK_STYLE, **(hook_style or {})}
     ffmpeg_path = get_ffmpeg_path()
     temp_dir = Path(output_path).parent
+
+    # Select video encoder based on GPU config
+    video_enc_args = build_video_enc_args(gpu_config)
+    if gpu_config and gpu_config.get("available"):
+        log(f"Using GPU encoder: {gpu_config.get('name')} (preset={gpu_config.get('preset')})")
+    else:
+        log(f"Using CPU encoder: libx264")
 
     try:
         duration = float(duration)
@@ -220,7 +229,7 @@ def generate_hook(
         f"[0:v][1:v]overlay=0:0:enable='lte(t,{duration})'[v]",
         "-map", "[v]",
         "-map", "0:a?",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        *video_enc_args,
         "-pix_fmt", "yuv420p",
         "-c:a", "copy",
         output_path,

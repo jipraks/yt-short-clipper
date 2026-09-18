@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .helpers import get_ffmpeg_path
+from .gpu import build_video_enc_args
 
 LogFn = Callable[[str], None]
 
@@ -18,6 +19,7 @@ def apply_watermark(
     watermark: dict[str, Any] | None = None,
     credit_watermark: dict[str, Any] | None = None,
     log: LogFn | None = None,
+    gpu_config: dict[str, Any] | None = None,
 ) -> str:
     """Apply logo watermark and/or credit text overlay to video.
 
@@ -38,10 +40,24 @@ def apply_watermark(
         shutil.copy2(input_video_path, output_path)
         return output_path
 
-    # Build ffmpeg filter chain
-    filters = []
+    # Select video encoder based on GPU config
+    video_enc_args = build_video_enc_args(gpu_config)
+    if gpu_config and gpu_config.get("available"):
+        log(f"Using GPU encoder: {gpu_config.get('name')} (preset={gpu_config.get('preset')})")
+    else:
+        log(f"Using CPU encoder: libx264")
+
+    # Build ffmpeg filter chain with explicit labels and a fallback font
     inputs = ["-i", input_video_path]
     filter_parts = []
+
+    # Determine a safe font path (fallback to common fonts if available)
+    possible_fonts = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+    ]
+    font_path = next((p for p in possible_fonts if Path(p).exists()), None)
 
     if has_logo:
         logo_path = watermark["image_path"]
@@ -52,19 +68,13 @@ def apply_watermark(
 
         inputs.extend(["-i", logo_path])
 
-        # Scale logo relative to video width, position as fraction of video dimensions
+        # Scale logo relative to video width, then overlay on base video
         logo_filter = (
             f"[1:v]format=rgba,colorchannelmixer=aa={opacity},"
             f"scale=iw*{scale}:-1[logo];"
-            f"[0:v][logo]overlay="
-            f"W*{pos_x}-overlay_w/2:H*{pos_y}-overlay_h/2"
+            f"[0:v][logo]overlay=W*{pos_x}-overlay_w/2:H*{pos_y}-overlay_h/2[watermarked]"
         )
-
-        if has_credit:
-            logo_filter += "[watermarked]"
-            filter_parts.append(logo_filter)
-        else:
-            filter_parts.append(logo_filter)
+        filter_parts.append(logo_filter)
 
     if has_credit:
         text = credit_watermark["text"]
@@ -73,36 +83,35 @@ def apply_watermark(
         opacity = credit_watermark.get("opacity", 0.7)
         pos_x = credit_watermark.get("position_x", 0.03)
         pos_y = credit_watermark.get("position_y", 0.92)
+        # Ensure credit text is not overlapped by UI buttons (avoid very low y)
+        if pos_y > 0.9:
+            pos_y = 0.85
 
         # Convert hex color to ffmpeg format (remove #)
         ff_color = color.lstrip("#")
-
-        # Calculate alpha as hex
+        # Calculate alpha as hex (two‑digit)
         alpha_hex = format(int(opacity * 255), "02x")
-
         # Escape special characters for ffmpeg drawtext
         escaped_text = text.replace("'", "\\'").replace(":", "\\:")
 
-        if has_logo:
-            # Chain after logo overlay
-            credit_filter = (
-                f"[watermarked]drawtext="
-                f"text='{escaped_text}':"
-                f"fontsize={font_size}:"
-                f"fontcolor=0x{ff_color}{alpha_hex}:"
-                f"x=w*{pos_x}:y=h*{pos_y}:"
-                f"shadowcolor=black@0.5:shadowx=1:shadowy=1"
-            )
-        else:
-            # Apply directly to input
-            credit_filter = (
-                f"[0:v]drawtext="
-                f"text='{escaped_text}':"
-                f"fontsize={font_size}:"
-                f"fontcolor=0x{ff_color}{alpha_hex}:"
-                f"x=w*{pos_x}:y=h*{pos_y}:"
-                f"shadowcolor=black@0.5:shadowx=1:shadowy=1"
-            )
+        # Choose the correct input label: if logo was added we have [watermarked], otherwise base is [0:v]
+        input_label = "[watermarked]" if has_logo else "[0:v]"
+        # Truncate overly long credit text to avoid overflow
+        max_len = 80
+        display_text = text if len(text) <= max_len else text[:max_len-3] + "..."
+        # Escape for ffmpeg
+        escaped_display = display_text.replace("'", "\\'").replace(":", "\\:")
+        # Build drawtext filter with background box for readability
+        font_option = f":fontfile={font_path}" if font_path else ":font=Sans"
+        credit_filter = (
+            f"{input_label}drawtext="
+            f"text='{escaped_display}':"
+            f"fontsize={font_size}:"
+            f"fontcolor=0x{ff_color}{alpha_hex}{font_option}:"
+            f"x=w*{pos_x}:y=h*{pos_y}:"
+            f"box=1:boxcolor=black@0.5:boxborderw=5:"
+            f"shadowcolor=black@0.5:shadowx=1:shadowy=1"
+        )
         filter_parts.append(credit_filter)
 
     filter_complex = ";".join(filter_parts)
@@ -112,7 +121,7 @@ def apply_watermark(
         ffmpeg_path, "-y",
         *inputs,
         "-filter_complex", filter_complex,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        *video_enc_args,
         "-c:a", "copy",
         output_path,
     ]
