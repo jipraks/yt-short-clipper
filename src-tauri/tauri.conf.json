@@ -1,7 +1,7 @@
 {
   "productName": "YTShortClipperV2",
-  "version": "2.0.37",
-  "identifier": "com.jipraks.ytshortclipper-v2",
+  "version": "2.0.38-beta",
+
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173"
