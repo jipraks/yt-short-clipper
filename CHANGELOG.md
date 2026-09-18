@@ -1,6 +1,13 @@
 # Changelog
 
-## [2.0.38-beta] - 2026-09-20
+## [2.0.39] - 2026-09-21
+### Added
+- Caption Style selector (6 styles) in Process Clips dialog.
+- Inline editing for Credit Text.
+- Version bump to 2.0.39.
+### Fixed
+- Ensure progress bar sync during encoding and split-screen composition.
+
 ### Added
 - Caption Style selector (6 styles) in Process Clips dialog.
 - Inline editing for Credit Text.
