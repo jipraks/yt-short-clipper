@@ -89,14 +89,20 @@ def apply_watermark(
 
         # Choose the correct input label: if logo was added we have [watermarked], otherwise base is [0:v]
         input_label = "[watermarked]" if has_logo else "[0:v]"
-        # Build drawtext filter, including explicit fontfile if we have one
+        # Truncate overly long credit text to avoid overflow
+        max_len = 80
+        display_text = text if len(text) <= max_len else text[:max_len-3] + "..."
+        # Escape for ffmpeg
+        escaped_display = display_text.replace("'", "\\'").replace(":", "\\:")
+        # Build drawtext filter with background box for readability
         fontfile_part = f":fontfile={font_path}" if font_path else ""
         credit_filter = (
             f"{input_label}drawtext="
-            f"text='{escaped_text}':"
+            f"text='{escaped_display}':"
             f"fontsize={font_size}:"
             f"fontcolor=0x{ff_color}{alpha_hex}{fontfile_part}:"
             f"x=w*{pos_x}:y=h*{pos_y}:"
+            f"box=1:boxcolor=black@0.5:boxborderw=5:"
             f"shadowcolor=black@0.5:shadowx=1:shadowy=1"
         )
         filter_parts.append(credit_filter)
