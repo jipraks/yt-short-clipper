@@ -444,17 +444,17 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
                       </p>
                     </div>
                   </div>
-                  <Switch checked={addCreditWatermark} onCheckedChange={setAddCreditWatermark} />
+                  <div className="flex items-center gap-2 w-full">
+                    <Switch checked={addCreditWatermark} onCheckedChange={setAddCreditWatermark} />
+                    <input
+                      value={creditText}
+                      onChange={(e) => setCreditText(e.target.value)}
+                      disabled={!addCreditWatermark}
+                      className="flex-1 px-3 py-2 text-sm bg-[var(--color-bg-secondary)] rounded-[var(--radius-sm)] border border-[var(--color-border-light)] focus:outline-none focus:border-[var(--color-accent)] disabled:bg-[var(--color-bg-muted)]"
+                      placeholder="e.g. Source: {channel}"
+                    />
+                  </div>
                 </div>
-                {addCreditWatermark && (
-                  <input
-                    value={creditText}
-                    onChange={(e) => setCreditText(e.target.value)}
-                    className="w-full px-3 py-2 text-sm bg-[var(--color-bg-secondary)] rounded-[var(--radius-sm)] border border-[var(--color-border-light)] focus:outline-none focus:border-[var(--color-accent)]"
-                    placeholder="e.g. Source: {channel}"
-                  />
-                )}
-              </div>
 
               {/* Caption style selector (only if captions enabled) */}
               {addCaptions && (
