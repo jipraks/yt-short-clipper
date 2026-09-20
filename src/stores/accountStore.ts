@@ -11,6 +11,7 @@ import {
   restoreAccount,
   type Account,
   type AppInfo,
+  type CatalogModel,
 } from "@/hooks/account";
 import { useConfigStore } from "@/stores/configStore";
 import { getInstallationId } from "@/hooks/installationId";
@@ -30,9 +31,17 @@ interface AccountStoreState {
   /** Last failure from a balance refresh, for a quiet inline note. */
   error: string | null;
   appInfo: AppInfo | null;
+  /**
+   * The model catalogue, fetched once and shared. The sidebar picker and the
+   * AI Models page both need it, and two components fetching the same list on
+   * mount is one request too many for something that changes this rarely.
+   */
+  models: CatalogModel[] | null;
+  modelsLoading: boolean;
 
   init: () => Promise<void>;
   refresh: () => Promise<void>;
+  loadModels: (force?: boolean) => Promise<void>;
   activate: () => Promise<Account>;
   restore: (token: string) => Promise<Account>;
   forget: () => Promise<void>;
@@ -98,9 +107,21 @@ export async function ensureDefaultModel(): Promise<void> {
   if (!store.loaded) await store.load();
   if (useConfigStore.getState().config.ai.inapp.model.trim()) return;
 
-  const { data } = await fetchModels();
-  const first = data.find((model) => model.mode === "chat") ?? data[0];
+  await useAccountStore.getState().loadModels();
+  const first = chatModels(useAccountStore.getState().models)[0];
   if (first) await useConfigStore.getState().setInappModel(first.name);
+}
+
+/**
+ * The models worth offering for this app's work.
+ *
+ * `unknown` is kept because LiteLLM does not always report a mode, and hiding
+ * a usable model is worse than listing one that turns out not to fit. Whatever
+ * this returns is both what the pickers show and where the default comes from,
+ * so "the first one" means the same thing in both places.
+ */
+export function chatModels(models: CatalogModel[] | null): CatalogModel[] {
+  return (models ?? []).filter((m) => m.mode === "chat" || m.mode === "unknown");
 }
 
 /** Re-reads what the credential store actually holds. */
@@ -125,6 +146,8 @@ export const useAccountStore = create<AccountStoreState>((set, get) => ({
   busy: false,
   error: null,
   appInfo: null,
+  models: null,
+  modelsLoading: false,
 
   /**
    * Reads local state, provisions an account if this installation has none,
@@ -161,6 +184,21 @@ export const useAccountStore = create<AccountStoreState>((set, get) => ({
       }
     } finally {
       set({ refreshing: false });
+    }
+  },
+
+  loadModels: async (force = false) => {
+    const { models, modelsLoading, activated } = get();
+    if (!activated || modelsLoading || (models && !force)) return;
+    set({ modelsLoading: true });
+    try {
+      const { data } = await fetchModels();
+      set({ models: data });
+    } catch {
+      // The picker falls back to whatever is already saved; an unreachable
+      // catalogue is not a reason to lose the model the user is using.
+    } finally {
+      set({ modelsLoading: false });
     }
   },
 

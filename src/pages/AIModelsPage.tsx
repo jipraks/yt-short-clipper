@@ -27,15 +27,18 @@ import {
 import {
   errorCode,
   errorMessage,
-  fetchModels,
   fetchUsage,
   jakartaDate,
-  type CatalogModel,
   type UsageLog,
 } from "@/hooks/account";
 import { listAIModels, type CustomAISettings } from "@/hooks/appConfig";
 import { useConfigStore } from "@/stores/configStore";
-import { ensureDefaultModel, inappSupported, useAccountStore } from "@/stores/accountStore";
+import {
+  chatModels,
+  ensureDefaultModel,
+  inappSupported,
+  useAccountStore,
+} from "@/stores/accountStore";
 import { formatSpendUsd, formatUsd } from "@/utils/format";
 import { cn } from "@/lib/utils";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
@@ -366,22 +369,15 @@ function InappPanel() {
 function InappModelCard() {
   const model = useConfigStore((s) => s.config.ai.inapp.model);
   const setInappModel = useConfigStore((s) => s.setInappModel);
-
-  const [models, setModels] = useState<CatalogModel[] | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { models, modelsLoading, loadModels } = useAccountStore();
 
   useEffect(() => {
-    fetchModels()
-      .then(({ data }) => setModels(data))
-      .catch((err) => toast.error(errorMessage(err)))
-      .finally(() => setLoading(false));
-  }, []);
+    void loadModels();
+  }, [loadModels]);
 
-  const chatModels = useMemo(
-    () => (models ?? []).filter((m) => m.mode === "chat" || m.mode === "unknown"),
-    [models]
-  );
-  const selected = chatModels.find((m) => m.name === model);
+  const available = useMemo(() => chatModels(models), [models]);
+  const selected = available.find((m) => m.name === model);
+  const loading = modelsLoading && !models;
 
   return (
     <Card>
@@ -409,7 +405,7 @@ function InappModelCard() {
               className="w-full h-10 px-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-border-focus)]"
             >
               {!model && <option value="">Choose a model</option>}
-              {chatModels.map((m) => (
+              {available.map((m) => (
                 <option key={m.id} value={m.name}>
                   {m.name}
                 </option>

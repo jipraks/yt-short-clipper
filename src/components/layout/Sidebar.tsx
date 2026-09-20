@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import { useConfigStore } from "@/stores/configStore";
-import { useAccountStore } from "@/stores/accountStore";
+import { chatModels, useAccountStore } from "@/stores/accountStore";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/config/version";
 import { menuIcon } from "@/config/menuIcons";
@@ -22,6 +22,8 @@ import { DEFAULT_MENU_ITEMS, fetchMenu, readCachedMenu, type MenuItem } from "@/
 import { AdvertiseDialog } from "@/components/AdvertiseDialog";
 import { TopupDialog } from "@/components/TopupDialog";
 import { formatUsd } from "@/utils/format";
+import { errorMessage } from "@/hooks/account";
+import { toast } from "sonner";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
 
 const navItems = [
@@ -158,6 +160,61 @@ export function Sidebar() {
 }
 
 /**
+ * The model in use, switchable without leaving the page you are on.
+ *
+ * Unlike the provider itself, which model runs is a per-video call — a long
+ * interview wants something cheap, a dense talk wants something better — so it
+ * earns its place here in a way a provider toggle does not.
+ *
+ * A model the catalogue no longer lists is still offered as an option, because
+ * silently swapping what somebody chose is worse than showing a name that has
+ * since been retired.
+ */
+function SidebarModelPicker() {
+  const model = useConfigStore((s) => s.config.ai.inapp.model);
+  const setInappModel = useConfigStore((s) => s.setInappModel);
+  const { models, modelsLoading, loadModels } = useAccountStore();
+
+  useEffect(() => {
+    void loadModels();
+  }, [loadModels]);
+
+  const available = chatModels(models);
+
+  if (modelsLoading && !models) {
+    return (
+      <div className="mt-2 flex items-center gap-1.5 px-1 text-[10px] text-[var(--color-text-muted)]">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Loading models...
+      </div>
+    );
+  }
+
+  if (!available.length && !model) return null;
+
+  return (
+    <select
+      value={model}
+      onChange={(e) =>
+        setInappModel(e.target.value).catch((err) => toast.error(errorMessage(err)))
+      }
+      title={model || "Choose a model"}
+      className="mt-2 w-full h-7 px-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border-light)] bg-[var(--color-bg-input)] text-[11px] text-[var(--color-text-secondary)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--color-border-focus)]"
+    >
+      {!model && <option value="">Choose a model</option>}
+      {available.map((m) => (
+        <option key={m.id} value={m.name}>
+          {m.name}
+        </option>
+      ))}
+      {model && !available.some((m) => m.name === model) && (
+        <option value={model}>{model}</option>
+      )}
+    </select>
+  );
+}
+
+/**
  * Which AI is active, and how much is left when that answer is "the in-app one".
  *
  * This is a status readout, not a switch. Changing provider mid-session is a
@@ -232,6 +289,8 @@ function AIStatus({ collapsed }: { collapsed: boolean }) {
             <Loader2 className="w-3 h-3 animate-spin text-[var(--color-text-muted)] shrink-0" />
           )}
         </button>
+
+        {!custom && activated && <SidebarModelPicker />}
 
         {!custom && activated && (
           <button
