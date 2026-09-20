@@ -55,17 +55,19 @@ npm run deps       # download ffmpeg + deno ke src-tauri/binaries (sekali saja)
 
 ### Google Analytics (Hanya Build Rilis)
 
-Kredensial GA4 dibaca **saat compile**, bukan runtime — sengaja tidak disimpan di repo
-karena repo ini publik. Set dua env var ini sebelum `npm run release`:
+Measurement ID (`G-Q85RTZ06HJ`) sudah ditanam di `analytics.rs` — nilai itu publik.
+Yang **tidak** disimpan di repo cuma API secret-nya, karena repo ini publik. Set satu
+env var ini sebelum `npm run release`:
 
 ```powershell
-$env:GA_MEASUREMENT_ID = "G-XXXXXXXXXX"
-$env:GA_API_SECRET     = "<secret dari GA4 Admin>"
+$env:GA_API_SECRET = "<secret dari GA4 Admin -> Data streams -> Measurement Protocol>"
 npm run release
 ```
 
-Tanpa keduanya aplikasi **tidak mengirim apa pun** — itu yang diinginkan untuk build
+Tanpa itu aplikasi **tidak mengirim apa pun** — itu yang diinginkan untuk build
 development. Jangan pernah commit `GA_API_SECRET`.
+
+> Fork yang mau pakai property sendiri: set juga `GA_MEASUREMENT_ID`.
 
 > Cargo cache hasil compile berdasarkan nilai env var ini. Kalau diubah, jalankan
 > `cargo clean -p yt-short-clipper-v2` di `src-tauri/` supaya nilainya benar-benar
@@ -184,7 +186,7 @@ npm run package -- -Force
 - [ ] Tes `portable.zip` di folder/PC bersih: extract → `run.bat` → cek footer versi
 - [ ] Tes `update.zip`: extract **menimpa** instalasi lama → `run.bat` → cek versi terupdate
 - [ ] Upload **kedua** zip ke GitHub Release dengan tag (mis. `v2.0.1-beta`)
-- [ ] Set `GA_MEASUREMENT_ID` + `GA_API_SECRET` sebelum build (lihat "Google Analytics"),
-      kalau tidak build ini tidak mengirim analytics sama sekali
+- [ ] Set `GA_API_SECRET` sebelum build (lihat "Google Analytics"), kalau tidak build ini
+      tidak mengirim analytics sama sekali
 - [ ] Update `latestVersion` di endpoint `api-v2.ytclip.org/api/public/v1/app` ke versi baru
       supaya user lama dapat notifikasi update di aplikasi

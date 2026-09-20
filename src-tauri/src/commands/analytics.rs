@@ -14,14 +14,17 @@ use serde_json::json;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// GA4 measurement ID. Not a secret — it ships in the page source of every site
-/// that uses GA — so a real value is fine to commit.
+/// GA4 measurement ID for the project's own property.
+///
+/// Not a secret: it ships in the page source of every site that uses GA, so it
+/// lives here rather than in the build environment. `GA_MEASUREMENT_ID`
+/// overrides it, which is what a fork wants — though a fork that only sets its
+/// own `GA_API_SECRET` still sends nothing anywhere, since a secret minted on
+/// another property is rejected rather than accepted into this one.
 const MEASUREMENT_ID: &str = match option_env!("GA_MEASUREMENT_ID") {
     Some(value) => value,
-    None => PLACEHOLDER_ID,
+    None => "G-Q85RTZ06HJ",
 };
-
-const PLACEHOLDER_ID: &str = "G-XXXXXXXXXX";
 
 /// The Measurement Protocol secret, injected at build time.
 ///
@@ -41,16 +44,16 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The gate, as a pure function so it can be tested without depending on how
 /// the test runner happened to be invoked.
-fn credentials(measurement_id: &'static str, api_secret: Option<&'static str>) -> Option<&'static str> {
-    if measurement_id == PLACEHOLDER_ID {
-        return None;
-    }
+///
+/// The secret is the whole gate: the measurement ID is compiled in, so a build
+/// that was never given a secret is exactly a build that must stay silent.
+fn credentials(api_secret: Option<&'static str>) -> Option<&'static str> {
     api_secret.filter(|secret| !secret.trim().is_empty())
 }
 
-/// Whether this build was given credentials. None in any dev build.
+/// Whether this build was given a secret. None in any dev build.
 fn configured() -> Option<&'static str> {
-    credentials(MEASUREMENT_ID, API_SECRET)
+    credentials(API_SECRET)
 }
 
 /// One id per app launch, which is what GA4 means by a session.
@@ -127,11 +130,17 @@ mod tests {
     /// suite passes both in a dev checkout and in a release build that really
     /// does carry credentials.
     #[test]
-    fn analytics_stays_off_until_both_credentials_are_real() {
-        assert!(credentials(PLACEHOLDER_ID, Some("secret")).is_none());
-        assert!(credentials("G-REAL12345", None).is_none());
-        assert!(credentials("G-REAL12345", Some("   ")).is_none());
-        assert_eq!(credentials("G-REAL12345", Some("secret")), Some("secret"));
+    fn analytics_stays_off_until_a_secret_is_supplied() {
+        assert!(credentials(None).is_none());
+        assert!(credentials(Some("")).is_none());
+        assert!(credentials(Some("   ")).is_none());
+        assert_eq!(credentials(Some("secret")), Some("secret"));
+    }
+
+    #[test]
+    fn the_measurement_id_is_a_real_ga4_id() {
+        assert!(MEASUREMENT_ID.starts_with("G-"));
+        assert!(MEASUREMENT_ID.len() > 3);
     }
 
     #[test]
