@@ -546,7 +546,6 @@ fn default_app_config() -> serde_json::Value {
     serde_json::json!({
         "aiProviders": {
             "highlightFinder": { "baseUrl": "https://ai-api.ytclip.org/v1", "apiKey": "", "model": "", "systemMessage": "" },
-            "captionMaker": { "baseUrl": "https://ai-api.ytclip.org/v1", "apiKey": "", "model": "whisper-1" },
             "titleGenerator": { "baseUrl": "https://ai-api.ytclip.org/v1", "apiKey": "", "model": "" }
         },
         "gpuAcceleration": { "enabled": false },

@@ -15,7 +15,7 @@ Pillow>=10.0.0
 # MediaPipe face tracking
 mediapipe>=0.10.0
 
-# HTTP requests (Whisper API, Repliz API)
+# HTTP requests (Repliz API, pre-signed upload URLs)
 requests>=2.31.0
 
 # Build tool for freezing the sidecar

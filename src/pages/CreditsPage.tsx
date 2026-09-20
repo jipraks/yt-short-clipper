@@ -75,7 +75,7 @@ const LIBRARIES: LibraryInfo[] = [
   {
     name: "OpenAI Python SDK",
     version: "1.0+",
-    description: "AI API client for TTS, Whisper, and chat completions",
+    description: "AI API client for chat completions and model listing",
     license: "Apache 2.0",
     url: "https://github.com/openai/openai-python",
   },
