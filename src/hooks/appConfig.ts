@@ -43,6 +43,24 @@ export interface ReplizSettings {
   secretKey: string;
 }
 
+/**
+ * Slack added around every AI-chosen clip range, in seconds.
+ *
+ * The model copies its timestamps from subtitle cue markers, and a YouTube ASR
+ * cue boundary is a rolling-window artifact rather than a sentence boundary —
+ * the cue end is simply where the next cue begins, so the speaker is usually
+ * still mid-sentence there. Padding buys the clip back its full thought.
+ */
+export interface ClipPaddingSettings {
+  /** Seconds kept before the chosen start. */
+  leadIn: number;
+  /** Seconds kept after the chosen end. */
+  tailOut: number;
+}
+
+/** Ceiling enforced in the UI and again in the Python worker. */
+export const MAX_CLIP_PADDING = 15;
+
 export interface AppConfig {
   /** Single AI provider shared by highlight finding and title generation. */
   ai: AIProviderSettings;
@@ -52,6 +70,7 @@ export interface AppConfig {
   watermark: WatermarkSettings;
   creditWatermark: CreditWatermarkSettings;
   hookStyle: HookStyleSettings;
+  clipPadding: ClipPaddingSettings;
   repliz: ReplizSettings;
   /** Stable per-install UUID, generated on first run. Persists across updates. */
   installationId: string;
@@ -94,6 +113,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     positionX: 0.5,
     positionY: 0.333,
     durationSeconds: 5,
+  },
+  clipPadding: {
+    leadIn: 1.5,
+    tailOut: 2.5,
   },
   repliz: {
     accessKey: "",
@@ -196,6 +219,10 @@ function mergeConfig(config: Partial<AppConfig> | undefined): AppConfig {
     hookStyle: {
       ...DEFAULT_CONFIG.hookStyle,
       ...config?.hookStyle,
+    },
+    clipPadding: {
+      ...DEFAULT_CONFIG.clipPadding,
+      ...config?.clipPadding,
     },
     repliz: {
       ...DEFAULT_CONFIG.repliz,

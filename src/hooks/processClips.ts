@@ -51,6 +51,10 @@ export async function processClips(params: {
       position_x: number;
       position_y: number;
     };
+    clip_padding?: {
+      lead_in: number;
+      tail_out: number;
+    };
   };
   onLog?: (message: string) => void;
 }): Promise<unknown> {

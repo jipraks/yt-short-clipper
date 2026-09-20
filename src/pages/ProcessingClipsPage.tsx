@@ -97,6 +97,7 @@ export function ProcessingClipsPage() {
       const hookStyle = config.hookStyle;
       const watermarkConfig = config.watermark;
       const creditConfig = config.creditWatermark;
+      const paddingConfig = config.clipPadding;
 
       const result = (await processClips({
         url,
@@ -134,6 +135,10 @@ export function ProcessingClipsPage() {
             opacity: creditConfig.opacity,
             position_x: creditConfig.positionX,
             position_y: creditConfig.positionY,
+          },
+          clip_padding: {
+            lead_in: paddingConfig.leadIn,
+            tail_out: paddingConfig.tailOut,
           },
         },
         onLog: (message) => {
@@ -189,7 +194,7 @@ export function ProcessingClipsPage() {
       setError(detail);
       appendLog(`❌ Error: ${detail}`);
     }
-  }, [url, highlights, sessionDir, options, config.ai, config.hookStyle, config.watermark, config.creditWatermark, appendLog, navigate]);
+  }, [url, highlights, sessionDir, options, config.ai, config.hookStyle, config.watermark, config.creditWatermark, config.clipPadding, appendLog, navigate]);
 
   useEffect(() => {
     if (startedRef.current) return;

@@ -48,3 +48,12 @@ def extract_transcript_for_highlight(srt_path: str, start_time: str, end_time: s
                 lines.append(clean_text)
 
     return " ".join(lines)
+
+
+def format_timestamp(seconds: float) -> str:
+    """Render seconds as an SRT timestamp (HH:MM:SS,mmm) — inverse of parse_timestamp."""
+    ms_total = max(0, int(round(seconds * 1000)))
+    hours, rem = divmod(ms_total, 3_600_000)
+    minutes, rem = divmod(rem, 60_000)
+    secs, ms = divmod(rem, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{ms:03d}"

@@ -1,6 +1,7 @@
 """Process selected highlights: download → portrait → hook → caption → watermark."""
 
 import json
+import math
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -10,10 +11,22 @@ from .video_processor import download_video_section
 from .portrait import convert_to_portrait, convert_to_portrait_centered
 from .hook_generator import generate_hook
 from .caption_generator import generate_captions_from_words
-from .srt_parser import parse_timestamp
+from .srt_parser import format_timestamp, parse_timestamp
 from .watermark import apply_watermark
 
 LogFn = Callable[[str], None]
+
+# Seconds of slack added around every AI-chosen clip range. The model copies its
+# timestamps from subtitle cue markers, and a YouTube ASR cue boundary is a
+# rolling-window artifact rather than a sentence boundary: a cue's end is simply
+# where the next cue begins, so the speaker is usually still mid-sentence there.
+# The defaults are asymmetric on purpose — cue starts lag real speech onset a
+# little, but the trailing edge is what actually cuts explanations off.
+DEFAULT_LEAD_IN = 1.5
+DEFAULT_TAIL_OUT = 2.5
+# Ceiling for the user-configurable values. Past this a clip stops being a clip,
+# and adjacent highlights would start swallowing each other.
+MAX_PADDING = 15.0
 
 
 def _load_caption_words(session_path: Path, log: LogFn) -> list[dict[str, Any]]:
@@ -50,6 +63,26 @@ def _words_for_clip(
             continue
         sliced.append({"word": w["word"], "start": rel_start, "end": rel_end})
     return sliced
+
+
+def _clamp_padding(value: Any, fallback: float) -> float:
+    """Coerce a configured padding value to a usable number of seconds."""
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    if not math.isfinite(seconds) or seconds < 0:
+        return fallback
+    return min(seconds, MAX_PADDING)
+
+
+def _resolve_padding(ai: dict[str, Any]) -> tuple[float, float]:
+    """Read the lead-in / tail-out padding from config, falling back to defaults."""
+    cfg = ai.get("clip_padding") or {}
+    return (
+        _clamp_padding(cfg.get("lead_in"), DEFAULT_LEAD_IN),
+        _clamp_padding(cfg.get("tail_out"), DEFAULT_TAIL_OUT),
+    )
 
 
 def _run_portrait(input_path: str, output_path: str, options: dict[str, Any], log: LogFn) -> str:
@@ -89,6 +122,9 @@ def process_selected_highlights(
     add_watermark = options.get("addWatermark", False)
     add_credit_watermark = options.get("addCreditWatermark", False)
 
+    lead_in, tail_out = _resolve_padding(ai)
+    log(f"Clip padding: {lead_in:.1f}s before / {tail_out:.1f}s after each range")
+
     # Word-level caption timing for the full source video (from the original
     # subtitle track). Empty if unavailable — captions are then skipped.
     caption_words = _load_caption_words(session_path, log) if add_captions else []
@@ -116,12 +152,25 @@ def process_selected_highlights(
 
         section_path = str(temp_dir / f"section_{i:03d}.mp4")
 
-        # Step 1: Download video section
-        log(f"[{i}/{total}] Downloading video section {h['start_time']} -> {h['end_time']}...")
+        # Widen the model's range by the configured padding. From here on
+        # clip_start / clip_end are the ONLY range anything uses — the cut, the
+        # caption time-shift and the saved metadata all derive from them, so
+        # they cannot drift apart. (Reading the unpadded h["start_time"] again
+        # further down would desync every caption by exactly lead_in seconds.)
+        source_start = parse_timestamp(h["start_time"])
+        source_end = parse_timestamp(h["end_time"])
+        clip_start = max(0.0, source_start - lead_in)
+        clip_end = source_end + tail_out
+        start_stamp = format_timestamp(clip_start)
+        end_stamp = format_timestamp(clip_end)
+
+        # Step 1: Download video section. An end past the source duration is
+        # fine — yt-dlp clamps the range to what the video actually has.
+        log(f"[{i}/{total}] Downloading video section {start_stamp} -> {end_stamp}...")
         video_path = download_video_section(
             url=url,
-            start_time=h["start_time"],
-            end_time=h["end_time"],
+            start_time=start_stamp,
+            end_time=end_stamp,
             output_path=section_path,
             log=log,
         )
@@ -157,8 +206,6 @@ def process_selected_highlights(
         # Step 4: Caption generation (word-by-word, from original subtitle track)
         clip_had_captions = False
         if add_captions and caption_words:
-            clip_start = parse_timestamp(h["start_time"])
-            clip_end = parse_timestamp(h["end_time"])
             clip_words = _words_for_clip(caption_words, clip_start, clip_end)
 
             if clip_words:
@@ -206,9 +253,14 @@ def process_selected_highlights(
             "highlight_index": highlight_index,
             "title": h.get("title", "Untitled"),
             "hook_text": h.get("hook_text", ""),
-            "start_time": h["start_time"],
-            "end_time": h["end_time"],
-            "duration_seconds": h.get("duration_seconds", 0),
+            # The range actually cut, padding included — this describes the file
+            # on disk. The model's own pick is kept alongside it for reference.
+            "start_time": start_stamp,
+            "end_time": end_stamp,
+            "duration_seconds": round(clip_end - clip_start, 3),
+            "source_start_time": h["start_time"],
+            "source_end_time": h["end_time"],
+            "padding": {"lead_in": lead_in, "tail_out": tail_out},
             "has_hook": add_hook and bool(h.get("hook_text")),
             "has_captions": clip_had_captions,
             "youtube_title": h.get("title", ""),

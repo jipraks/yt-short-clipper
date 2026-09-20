@@ -5,12 +5,18 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { SettingRow, SettingSection } from "@/components/settings/SettingRow";
-import { detectGpu, type GpuDetection } from "@/hooks/appConfig";
+import { Input } from "@/components/ui/input";
+import {
+  detectGpu,
+  MAX_CLIP_PADDING,
+  type ClipPaddingSettings,
+  type GpuDetection,
+} from "@/hooks/appConfig";
 import { useConfigStore } from "@/stores/configStore";
 
 export function SettingsPage() {
   const navigate = useNavigate();
-  const { config, loaded, load, setGpuAcceleration } = useConfigStore();
+  const { config, loaded, load, setGpuAcceleration, setClipPadding } = useConfigStore();
   const [detection, setDetection] = useState<GpuDetection | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -49,6 +55,14 @@ export function SettingsPage() {
       toast.error("Failed to save setting");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const savePadding = async (next: ClipPaddingSettings) => {
+    try {
+      await setClipPadding(next);
+    } catch {
+      toast.error("Failed to save clip timing");
     }
   };
 
@@ -131,6 +145,44 @@ export function SettingsPage() {
                 <span className="text-[var(--color-text-secondary)]">libx264 (CPU)</span>
               </>
             )}
+          </span>
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection
+        title="Clip Timing"
+        description="Extra footage kept around each clip so sentences aren't cut off."
+      >
+        <SettingRow
+          title="Lead-in"
+          description="Seconds kept before the start the AI picked."
+        >
+          <PaddingInput
+            value={config.clipPadding.leadIn}
+            disabled={!loaded}
+            onCommit={(leadIn) => savePadding({ ...config.clipPadding, leadIn })}
+          />
+        </SettingRow>
+
+        <SettingRow
+          title="Tail-out"
+          description="Seconds kept after the end the AI picked. Usually the one that matters — subtitle cues tend to end while the speaker is still talking."
+        >
+          <PaddingInput
+            value={config.clipPadding.tailOut}
+            disabled={!loaded}
+            onCommit={(tailOut) => savePadding({ ...config.clipPadding, tailOut })}
+          />
+        </SettingRow>
+
+        <SettingRow
+          title="Net effect"
+          description="Applied to the cut itself — captions shift with it, so they stay in sync."
+        >
+          <span className="text-sm font-medium text-[var(--color-text-secondary)]">
+            {config.clipPadding.leadIn + config.clipPadding.tailOut === 0
+              ? "Exact range, no padding"
+              : `+${(config.clipPadding.leadIn + config.clipPadding.tailOut).toFixed(1)}s per clip`}
           </span>
         </SettingRow>
       </SettingSection>
@@ -238,6 +290,62 @@ export function SettingsPage() {
           </Button>
         </SettingRow>
       </SettingSection>
+    </div>
+  );
+}
+
+interface PaddingInputProps {
+  value: number;
+  disabled: boolean;
+  onCommit: (seconds: number) => void;
+}
+
+/**
+ * Seconds input that commits on blur or Enter rather than per keystroke.
+ *
+ * It keeps its own draft string so a half-typed value ("1." on the way to
+ * "1.5") isn't parsed and written back mid-edit, and re-syncs whenever the
+ * stored value changes underneath it — which it does once on mount, when the
+ * real config replaces the defaults.
+ */
+function PaddingInput({ value, disabled, onCommit }: PaddingInputProps) {
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const parsed = Number(draft.replace(",", "."));
+    // Anything unparseable or out of range snaps back to the stored value
+    // rather than silently writing a nonsense padding.
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setDraft(String(value));
+      return;
+    }
+    const clamped = Math.min(Math.round(parsed * 10) / 10, MAX_CLIP_PADDING);
+    setDraft(String(clamped));
+    if (clamped !== value) onCommit(clamped);
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <Input
+        type="number"
+        inputMode="decimal"
+        min={0}
+        max={MAX_CLIP_PADDING}
+        step={0.5}
+        value={draft}
+        disabled={disabled}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        className="w-24 text-right"
+      />
+      <span className="text-sm text-[var(--color-text-muted)]">sec</span>
     </div>
   );
 }

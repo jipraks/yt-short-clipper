@@ -8,6 +8,7 @@ import {
   type WatermarkSettings,
   type CreditWatermarkSettings,
   type HookStyleSettings,
+  type ClipPaddingSettings,
   type ReplizSettings,
 } from "@/hooks/appConfig";
 
@@ -20,6 +21,7 @@ interface ConfigState {
   setWatermark: (watermark: WatermarkSettings) => Promise<void>;
   setCreditWatermark: (creditWatermark: CreditWatermarkSettings) => Promise<void>;
   setHookStyle: (hookStyle: HookStyleSettings) => Promise<void>;
+  setClipPadding: (clipPadding: ClipPaddingSettings) => Promise<void>;
   setRepliz: (repliz: ReplizSettings) => Promise<void>;
   isAIConfigured: () => boolean;
 }
@@ -77,6 +79,15 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     const next: AppConfig = {
       ...get().config,
       hookStyle,
+    };
+    const saved = await saveAppConfig(next);
+    set({ config: saved });
+  },
+
+  setClipPadding: async (clipPadding) => {
+    const next: AppConfig = {
+      ...get().config,
+      clipPadding,
     };
     const saved = await saveAppConfig(next);
     set({ config: saved });
