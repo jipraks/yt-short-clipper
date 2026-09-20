@@ -125,8 +125,8 @@ export function accountState(): Promise<AccountState> {
 }
 
 /**
- * Creates the account. Called from an explicit "activate" press, never on
- * launch — an account here outlives every uninstall and cannot be deleted.
+ * Creates the account. Fired automatically on first launch, and again from the
+ * retry button when that attempt could not reach the server.
  */
 export function registerAccount(
   appVersion: string,
@@ -215,9 +215,24 @@ export function errorCode(err: unknown): string {
   return match ? match[1] : "UNKNOWN";
 }
 
+/**
+ * The sentence to show a person: no code, no technical tail.
+ *
+ * Rust appends the failing request as a trailing `[GET /me → 502; ...]`. The
+ * pattern refuses to match when that tail itself contains a `[`, which keeps a
+ * nested JSON `details` payload from being half-chopped — in that case the
+ * whole string is shown instead. Erring toward too much is the right way round
+ * for an error message.
+ */
 export function errorMessage(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  return raw.replace(/^[A-Z_]+:\s/, "");
+  return errorDetail(err)
+    .replace(/^[A-Z_]+:\s/, "")
+    .replace(/\s*\[[^[]*\]$/, "");
+}
+
+/** Everything, including the failing request. For logs and bug reports. */
+export function errorDetail(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**

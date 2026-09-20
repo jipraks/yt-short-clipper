@@ -141,7 +141,9 @@ pub async fn find_highlights(
     on_event: Channel<FindHighlightsEvent>,
 ) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        account::resolve_ai(&mut ai)?;
+        account::resolve_ai_with(&mut ai, |message| {
+            let _ = on_event.send(FindHighlightsEvent::Log { message });
+        })?;
 
         let cookies_path = cookies_dir(&app)?.join("cookies.txt");
         let cookies_status = read_cookies_status_for_path(cookies_path.clone())?;
@@ -856,7 +858,9 @@ pub async fn process_clips(
     on_event: Channel<ProcessClipsEvent>,
 ) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        account::resolve_ai(&mut ai)?;
+        account::resolve_ai_with(&mut ai, |message| {
+            let _ = on_event.send(ProcessClipsEvent::Log { message });
+        })?;
 
         let cookies_path = cookies_dir(&app)?.join("cookies.txt");
         let cookies_status = read_cookies_status_for_path(cookies_path.clone())?;

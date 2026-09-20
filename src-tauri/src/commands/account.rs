@@ -103,31 +103,85 @@ struct ApiErrorEnvelope {
 struct ApiErrorBody {
     code: String,
     message: String,
+    #[serde(default)]
+    details: Option<serde_json::Value>,
 }
 
-/// Turns a response into either its JSON body or a `CODE: message` error.
+/// How much of a `details` payload or an unexpected body is worth carrying.
+const MAX_DETAIL_CHARS: usize = 400;
+
+/// Appends technical context inside a trailing `[...]`.
+///
+/// Errors here are a single string, because that is all a Tauri command can
+/// return, and the string has to serve two readers at once: a person, who wants
+/// the sentence, and whoever is debugging, who wants the endpoint and the
+/// status code. The bracket keeps them apart — `errorMessage()` on the frontend
+/// strips it for toasts, and the run log prints the whole thing.
+fn with_context(error: String, context: &str) -> String {
+    match error.strip_suffix(']') {
+        Some(head) => format!("{head}; {context}]"),
+        None => format!("{error} [{context}]"),
+    }
+}
+
+fn truncate(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= MAX_DETAIL_CHARS {
+        return trimmed.to_string();
+    }
+    let cut: String = trimmed.chars().take(MAX_DETAIL_CHARS).collect();
+    format!("{cut}…")
+}
+
+/// Turns a response into either its JSON body or a `CODE: message [context]`
+/// error.
 ///
 /// The prefix is the contract with the frontend: it branches on the code, never
-/// on the prose, exactly as the API documents for its own envelope.
-fn read_response(response: reqwest::blocking::Response) -> Result<serde_json::Value, String> {
+/// on the prose, exactly as the API documents for its own envelope. The
+/// bracketed tail names the request that failed, which is the difference
+/// between "the AI service rejected the request" and something anybody can act
+/// on.
+fn read_response(
+    method: &str,
+    path: &str,
+    response: reqwest::blocking::Response,
+) -> Result<serde_json::Value, String> {
     let status = response.status();
-    let body = response
-        .text()
-        .map_err(|e| format!("NETWORK: cannot read the response body: {e}"))?;
+    let route = format!("{method} {path} → {}", status.as_u16());
+
+    let body = response.text().map_err(|e| {
+        with_context(
+            format!("NETWORK: cannot read the response body: {e}"),
+            &route,
+        )
+    })?;
 
     if status.is_success() {
         if body.trim().is_empty() {
             return Ok(serde_json::Value::Null);
         }
-        return serde_json::from_str(&body)
-            .map_err(|e| format!("UPSTREAM_FAILED: unreadable response: {e}"));
+        return serde_json::from_str(&body).map_err(|e| {
+            with_context(
+                format!("UPSTREAM_FAILED: unreadable response: {e}"),
+                &format!("{route}; body: {}", truncate(&body)),
+            )
+        });
     }
 
     match serde_json::from_str::<ApiErrorEnvelope>(&body) {
-        Ok(envelope) => Err(format!("{}: {}", envelope.error.code, envelope.error.message)),
-        Err(_) => Err(format!(
-            "UPSTREAM_FAILED: the server answered {} with an unexpected body",
-            status.as_u16()
+        Ok(envelope) => {
+            let mut context = route;
+            if let Some(details) = envelope.error.details {
+                context.push_str(&format!("; details: {}", truncate(&details.to_string())));
+            }
+            Err(with_context(
+                format!("{}: {}", envelope.error.code, envelope.error.message),
+                &context,
+            ))
+        }
+        Err(_) => Err(with_context(
+            "UPSTREAM_FAILED: the server answered with an unexpected body".to_string(),
+            &format!("{route}; body: {}", truncate(&body)),
         )),
     }
 }
@@ -137,8 +191,8 @@ fn get(path: &str, token: &str) -> Result<serde_json::Value, String> {
         .get(format!("{API_BASE}{path}"))
         .bearer_auth(token)
         .send()
-        .map_err(network_error)?;
-    read_response(response)
+        .map_err(|e| network_error(e, "GET", path))?;
+    read_response("GET", path, response)
 }
 
 fn post(path: &str, token: &str, body: serde_json::Value) -> Result<serde_json::Value, String> {
@@ -147,8 +201,8 @@ fn post(path: &str, token: &str, body: serde_json::Value) -> Result<serde_json::
         .bearer_auth(token)
         .json(&body)
         .send()
-        .map_err(network_error)?;
-    read_response(response)
+        .map_err(|e| network_error(e, "POST", path))?;
+    read_response("POST", path, response)
 }
 
 fn delete(path: &str, token: &str) -> Result<serde_json::Value, String> {
@@ -156,17 +210,18 @@ fn delete(path: &str, token: &str) -> Result<serde_json::Value, String> {
         .delete(format!("{API_BASE}{path}"))
         .bearer_auth(token)
         .send()
-        .map_err(network_error)?;
-    read_response(response)
+        .map_err(|e| network_error(e, "DELETE", path))?;
+    read_response("DELETE", path, response)
 }
 
-fn network_error(e: reqwest::Error) -> String {
-    if e.is_timeout() {
+fn network_error(e: reqwest::Error, method: &str, path: &str) -> String {
+    let message = if e.is_timeout() {
         "NETWORK: the server did not answer in time. Check your connection and try again."
             .to_string()
     } else {
         format!("NETWORK: cannot reach the YTClip AI server: {e}")
-    }
+    };
+    with_context(message, &format!("{method} {path}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -296,9 +351,9 @@ pub async fn account_register(
             .header("Idempotency-Key", idempotency_key)
             .json(&json!({ "platform": platform, "appVersion": app_version }))
             .send()
-            .map_err(network_error)?;
+            .map_err(|e| network_error(e, "POST", "/devices"))?;
 
-        let created = read_response(response)?;
+        let created = read_response("POST", "/devices", response)?;
         let token = created
             .get("token")
             .and_then(|v| v.as_str())
@@ -309,8 +364,13 @@ pub async fn account_register(
         secret_write(ENTRY_DEVICE_TOKEN, token)?;
 
         // A key failure is not fatal — the account exists and `ensure` will try
-        // again on first use — so the activation still counts as done.
-        let _ = mint_inference_key(token);
+        // again on first use — so the activation still counts as done. It is
+        // still worth a line on stderr: without one, a server that cannot mint
+        // keys looks like a successful activation here and only surfaces as a
+        // rejected run much later.
+        if let Err(e) = mint_inference_key(token) {
+            eprintln!("[account] registered, but minting the first key failed: {e}");
+        }
 
         get("/me", token)
     })
@@ -516,8 +576,8 @@ pub async fn account_app_info() -> Result<serde_json::Value, String> {
         let response = client()?
             .get(format!("{API_BASE}/app"))
             .send()
-            .map_err(network_error)?;
-        read_response(response)
+            .map_err(|e| network_error(e, "GET", "/app"))?;
+        read_response("GET", "/app", response)
     })
     .await
     .map_err(|e| format!("Task failed: {e}"))?
@@ -534,6 +594,18 @@ pub async fn account_app_info() -> Result<serde_json::Value, String> {
 /// Custom providers pass through untouched — their key was typed by the user
 /// and already sits in the payload.
 pub fn resolve_ai(ai: &mut serde_json::Value) -> Result<(), String> {
+    resolve_ai_with(ai, |_| {})
+}
+
+/// As [`resolve_ai`], but reports what it is doing.
+///
+/// This step runs before the sidecar is even spawned, so without a log line of
+/// its own a failure here lands between "Starting..." and an error with no
+/// indication that the app never got as far as the transcript.
+pub fn resolve_ai_with<F: Fn(String)>(
+    ai: &mut serde_json::Value,
+    log: F,
+) -> Result<(), String> {
     let object = ai
         .as_object_mut()
         .ok_or("VALIDATION_FAILED: malformed AI settings")?;
@@ -546,9 +618,33 @@ pub fn resolve_ai(ai: &mut serde_json::Value) -> Result<(), String> {
     object.remove("source");
 
     if source == "inapp" {
-        let secret = ensure_inference_key()?;
+        let had_key = secret_read(ENTRY_INFERENCE_KEY)?.is_some();
+        log(if had_key {
+            "Using the in-app AI key from the credential store".to_string()
+        } else {
+            "No in-app AI key stored yet — asking the server for one".to_string()
+        });
+
+        let secret = ensure_inference_key().map_err(|e| {
+            with_context(
+                e,
+                if had_key {
+                    "while reading the in-app AI key"
+                } else {
+                    "while issuing an in-app AI key"
+                },
+            )
+        })?;
         object.insert("api_key".into(), json!(secret));
         object.insert("base_url".into(), json!(INFERENCE_BASE));
+    } else {
+        log(format!(
+            "Using your own API key at {}",
+            object
+                .get("base_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("(no base URL)")
+        ));
     }
 
     Ok(())
@@ -584,6 +680,28 @@ mod tests {
         assert_eq!(ai["api_key"], "sk-typed");
         assert_eq!(ai["base_url"], "https://x/v1");
         assert!(ai.get("source").is_none());
+    }
+
+    #[test]
+    fn context_is_appended_once_and_then_merged() {
+        let first = with_context("UPSTREAM_FAILED: rejected".into(), "POST /keys → 502");
+        assert_eq!(first, "UPSTREAM_FAILED: rejected [POST /keys → 502]");
+
+        // A second layer joins the same bracket rather than nesting, so the
+        // frontend only ever has one tail to strip.
+        let second = with_context(first, "while issuing an in-app AI key");
+        assert_eq!(
+            second,
+            "UPSTREAM_FAILED: rejected [POST /keys → 502; while issuing an in-app AI key]"
+        );
+    }
+
+    #[test]
+    fn long_details_are_cut_on_a_character_boundary() {
+        let long = "é".repeat(MAX_DETAIL_CHARS + 50);
+        let cut = truncate(&long);
+        assert_eq!(cut.chars().count(), MAX_DETAIL_CHARS + 1);
+        assert!(cut.ends_with('…'));
     }
 
     #[test]
