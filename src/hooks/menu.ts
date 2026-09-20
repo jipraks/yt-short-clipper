@@ -1,5 +1,4 @@
-import { APP_VERSION } from "@/config/version";
-import { getInstallationId } from "@/hooks/installationId";
+import { PUBLIC_API_BASE } from "@/config/api";
 
 export interface MenuItem {
   id: string;
@@ -8,7 +7,7 @@ export interface MenuItem {
   url: string;
 }
 
-const MENU_URL = "https://api.ytclip.org/webhook/yt-clipper/menu";
+const MENU_URL = `${PUBLIC_API_BASE}/menu`;
 const CACHE_KEY = "ytclip.sidebar-menu.v1";
 
 /** Guard rails on anything the server sends. */
@@ -102,12 +101,7 @@ function writeCachedMenu(items: MenuItem[]): void {
  */
 export async function fetchMenu(): Promise<MenuItem[] | null> {
   try {
-    const installationId = await getInstallationId();
-    const url =
-      `${MENU_URL}?app_version=${encodeURIComponent(APP_VERSION)}` +
-      `&installation_id=${encodeURIComponent(installationId)}`;
-
-    const res = await fetch(url);
+    const res = await fetch(MENU_URL);
     if (!res.ok) return null;
 
     const items = sanitizeMenu(await res.json());

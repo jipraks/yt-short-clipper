@@ -1,6 +1,6 @@
 import { APP_VERSION } from "@/config/version";
 import { compareVersions } from "@/utils/version";
-import { getInstallationId } from "@/hooks/installationId";
+import { fetchAppInfo } from "@/hooks/account";
 
 export interface LatestVersionResponse {
   version: string;
@@ -8,25 +8,26 @@ export interface LatestVersionResponse {
   changelog: string;
 }
 
-const WEBHOOK_URL = "https://api.ytclip.org/webhook/yt-clipper/latest-version";
-
+/**
+ * Whether a newer build exists, or null when this one is current.
+ *
+ * Reads `GET /app` on the public device API, through the same Rust command the
+ * account store uses for the version floor — one endpoint now answers both
+ * "are you too old to use in-app AI" and "is there an update". The shape below
+ * is kept as-is so the update dialog and the app store do not have to care
+ * that the source moved.
+ */
 export async function checkForUpdate(): Promise<LatestVersionResponse | null> {
   try {
-    const installationId = await getInstallationId();
-    const url =
-      `${WEBHOOK_URL}?app_version=${encodeURIComponent(APP_VERSION)}` +
-      `&installation_id=${encodeURIComponent(installationId)}`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
+    const info = await fetchAppInfo();
+    if (!info?.latestVersion) return null;
+    if (compareVersions(APP_VERSION, info.latestVersion) >= 0) return null;
 
-    const data: LatestVersionResponse = await res.json();
-    if (!data?.version) return null;
-
-    if (compareVersions(APP_VERSION, data.version) < 0) {
-      return data;
-    }
-
-    return null;
+    return {
+      version: info.latestVersion,
+      download_url: info.downloadUrl ?? "",
+      changelog: info.changelog ?? "",
+    };
   } catch {
     return null;
   }

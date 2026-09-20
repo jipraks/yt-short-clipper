@@ -17,5 +17,23 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# The public device API (account, QRIS top-ups, LiteLLM keys) is called from
+# Rust, never the renderer: the device token is the balance and must not sit in
+# the webview's JS context. rustls rather than the platform TLS stack for the
+# same reason the bundled ffmpeg avoids Schannel.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+
+# Device token and LiteLLM secret live in the OS credential store, not in
+# config.json beside the other settings.
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service"] }

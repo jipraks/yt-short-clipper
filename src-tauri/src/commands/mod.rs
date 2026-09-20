@@ -1,3 +1,5 @@
+pub mod account;
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -130,7 +132,7 @@ pub async fn find_highlights(
     url: String,
     num_clips: u32,
     subtitle_language: String,
-    ai: serde_json::Value,
+    mut ai: serde_json::Value,
     // Optional free-text steer typed on the Create page; empty means "none".
     user_direction: Option<String>,
     // Language code for titles and hooks; "auto"/None follows the video.
@@ -138,6 +140,8 @@ pub async fn find_highlights(
     on_event: Channel<FindHighlightsEvent>,
 ) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        account::resolve_ai(&mut ai)?;
+
         let cookies_path = cookies_dir(&app)?.join("cookies.txt");
         let cookies_status = read_cookies_status_for_path(cookies_path.clone())?;
         if !cookies_status.valid {
@@ -554,11 +558,16 @@ fn app_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 fn default_app_config() -> serde_json::Value {
     serde_json::json!({
         "ai": {
-            "baseUrl": "https://ai-api.ytclip.org/v1",
-            "apiKey": "",
-            "model": "",
+            "source": "inapp",
+            "custom": {
+                "baseUrl": "https://ai-api.ytclip.org/v1",
+                "apiKey": "",
+                "model": ""
+            },
+            "inapp": { "model": "" },
             "systemMessage": ""
         },
+        "account": { "keyBackupConfirmedAt": null },
         "gpuAcceleration": { "enabled": false },
         "watermark": {
             "enabled": false,
@@ -717,21 +726,23 @@ pub async fn generate_social_title(
     title: String,
     hook_text: String,
     description: String,
-    api_key: String,
-    base_url: String,
-    model: String,
+    // Same shape the other AI calls take, so the in-app account resolves here
+    // too instead of the renderer having to hand over a key.
+    mut ai: serde_json::Value,
     // Lets the sidecar read the session's output language so the social post
     // matches the language the clip's own title and hook were written in.
     session_dir: Option<String>,
 ) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        account::resolve_ai(&mut ai)?;
+
         let payload = serde_json::json!({
             "title": title,
             "hook_text": hook_text,
             "description": description,
-            "api_key": api_key,
-            "base_url": base_url,
-            "model": model,
+            "api_key": ai.get("api_key").and_then(|v| v.as_str()).unwrap_or_default(),
+            "base_url": ai.get("base_url").and_then(|v| v.as_str()).unwrap_or_default(),
+            "model": ai.get("model").and_then(|v| v.as_str()).unwrap_or_default(),
             "session_dir": session_dir,
         });
 
@@ -840,10 +851,12 @@ pub async fn process_clips(
     highlights: serde_json::Value,
     session_dir: String,
     options: serde_json::Value,
-    ai: serde_json::Value,
+    mut ai: serde_json::Value,
     on_event: Channel<ProcessClipsEvent>,
 ) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        account::resolve_ai(&mut ai)?;
+
         let cookies_path = cookies_dir(&app)?.join("cookies.txt");
         let cookies_status = read_cookies_status_for_path(cookies_path.clone())?;
         if !cookies_status.valid {

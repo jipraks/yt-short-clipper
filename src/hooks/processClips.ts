@@ -1,4 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import type { AIRequestSettings } from "@/hooks/aiRuntime";
 
 /** "original" keeps the source 16:9 framing — no portrait conversion at all. */
 export type ReframeMode = "face" | "centered" | "original";
@@ -20,12 +21,9 @@ export async function processClips(params: {
   highlights: unknown[];
   sessionDir: string;
   options: ProcessOptions;
-  ai: {
-    api_key: string;
-    base_url: string;
-    model: string;
-    system_message?: string;
-    temperature?: number;
+  // The credentials half is filled in by Rust for the in-app account; the
+  // render settings below ride along on the same object the sidecar reads.
+  ai: AIRequestSettings & {
     hook_style?: {
       font_name: string;
       font_path: string;

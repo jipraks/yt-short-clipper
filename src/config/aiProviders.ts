@@ -14,9 +14,10 @@ export interface AIProviderPreset {
 export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
   {
     key: "ytclip",
-    name: "⭐ YTClip AI",
+    name: "⭐ YTClip AI (Web — ai.ytclip.org)",
     baseUrl: "https://ai-api.ytclip.org/v1",
-    description: "YTClip AI - optimized for video content processing",
+    description:
+      "The ai.ytclip.org wallet, topped up on the website. Separate from the in-app balance.",
     docsUrl: "https://ytclip.org/api-keys",
     apiKeyFormat: "sk-*",
     requiresLoad: true,

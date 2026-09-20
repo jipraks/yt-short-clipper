@@ -20,13 +20,22 @@ import { NotificationDialog } from "@/components/NotificationDialog";
 import { checkForUpdate, type LatestVersionResponse } from "@/hooks/versionCheck";
 import { checkNotification, type NotificationResponse } from "@/hooks/notificationCheck";
 import { useAppStore } from "@/stores/appStore";
+import { useConfigStore } from "@/stores/configStore";
+import { useAccountStore } from "@/stores/accountStore";
 
 function App() {
   const [update, setUpdate] = useState<LatestVersionResponse | null>(null);
   const [notification, setNotification] = useState<NotificationResponse | null>(null);
   const setStoreUpdate = useAppStore((s) => s.setAvailableUpdate);
+  const loadConfig = useConfigStore((s) => s.load);
+  const initAccount = useAccountStore((s) => s.init);
 
   useEffect(() => {
+    // Config and account state feed the sidebar, which every page renders, so
+    // both load once here rather than in whichever page mounts first.
+    void loadConfig();
+    void initAccount();
+
     checkForUpdate().then((result) => {
       if (result) {
         setUpdate(result);

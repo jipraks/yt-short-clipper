@@ -1,4 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import type { AIRequestSettings } from "@/hooks/aiRuntime";
 
 export interface Highlight {
   start_time: string;
@@ -39,13 +40,9 @@ export interface SessionData {
   processed_highlights?: number[];
 }
 
-export interface AIRequestSettings {
-  api_key: string;
-  base_url: string;
-  model: string;
-  system_message?: string;
-  temperature?: number;
-}
+// The request shape lives with the resolver that builds it, so the two cannot
+// drift apart.
+export type { AIRequestSettings };
 
 export type FindHighlightsEvent = { type: "log"; message: string };
 

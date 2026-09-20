@@ -11,6 +11,8 @@ import { extractVideoId, getThumbnailUrl } from "@/utils/youtube";
 import { useProcessingStore } from "@/stores/processingStore";
 import { useCookiesStore } from "@/stores/cookiesStore";
 import { useConfigStore } from "@/stores/configStore";
+import { inappSupported, useAccountStore } from "@/stores/accountStore";
+import { aiBlocker, blockerMessage, buildAIRequest } from "@/hooks/aiRuntime";
 import {
   getAvailableSubtitles,
   normalizeSubtitleOptions,
@@ -57,6 +59,7 @@ export function CreatePage() {
   const { start } = useProcessingStore();
   const { cookiesValid, checkCookies } = useCookiesStore();
   const { config, loaded: configLoaded, load: loadConfig } = useConfigStore();
+  const { activated, account, appInfo } = useAccountStore();
 
   const [url, setUrl] = useState("");
   const [clipCount, setClipCount] = useState(5);
@@ -174,9 +177,17 @@ export function CreatePage() {
     }
     if (!isValid) return;
 
-    const hf = config.ai;
-    if (!configLoaded || !hf.apiKey.trim() || !hf.model.trim()) {
-      toast.error("Configure the AI provider first");
+    if (!configLoaded) return;
+
+    // One check for both sources, balance included: a run that dies halfway
+    // through because the wallet was already empty wastes the download too.
+    const blocker = aiBlocker(config.ai, {
+      activated,
+      account,
+      inappSupported: inappSupported(appInfo),
+    });
+    if (blocker) {
+      toast.error(blockerMessage(blocker));
       navigate("/ai-models");
       return;
     }
@@ -190,12 +201,7 @@ export function CreatePage() {
       subtitleLanguage: subtitleCode,
       userDirection: trimmedDirection || undefined,
       outputLanguage,
-      ai: {
-        api_key: hf.apiKey,
-        base_url: hf.baseUrl,
-        model: hf.model,
-        system_message: hf.systemMessage,
-      },
+      ai: buildAIRequest(config.ai),
     });
     navigate("/processing");
   };

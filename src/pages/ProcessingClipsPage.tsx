@@ -7,6 +7,10 @@ import { Progress } from "@/components/ui/progress";
 import { processClips, type ProcessOptions } from "@/hooks/processClips";
 import { logClipSuccess, type ClipSuccessFormat } from "@/hooks/successLog";
 import { useConfigStore } from "@/stores/configStore";
+import { inappSupported, useAccountStore } from "@/stores/accountStore";
+import { aiBlocker, blockerMessage, buildAIRequest } from "@/hooks/aiRuntime";
+import { isOutOfBalance } from "@/hooks/account";
+import { TopupDialog } from "@/components/TopupDialog";
 import { formatLogTime } from "@/utils/format";
 
 interface ClipProcessingState {
@@ -20,6 +24,7 @@ export function ProcessingClipsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { config } = useConfigStore();
+  const { activated, account, appInfo, refresh: refreshAccount } = useAccountStore();
   const state = location.state as ClipProcessingState | undefined;
 
   if (!state) {
@@ -34,6 +39,7 @@ export function ProcessingClipsPage() {
   const [progress, setProgress] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showTopup, setShowTopup] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const copyLog = useCallback(async () => {
     const text = logLines
@@ -89,9 +95,14 @@ export function ProcessingClipsPage() {
   }, [logLines, highlights.length]);
 
   const run = useCallback(async () => {
-    const hf = config.ai;
-    if (!hf.apiKey || !hf.model) {
-      setError("AI provider not configured. Please set it up in AI Models first.");
+    const blocker = aiBlocker(config.ai, {
+      activated,
+      account,
+      inappSupported: inappSupported(appInfo),
+    });
+    if (blocker) {
+      setError(blockerMessage(blocker));
+      if (blocker.kind === "no-balance") setShowTopup(true);
       return;
     }
 
@@ -109,10 +120,7 @@ export function ProcessingClipsPage() {
         sessionDir,
         options,
         ai: {
-          api_key: hf.apiKey,
-          base_url: hf.baseUrl,
-          model: hf.model,
-          system_message: hf.systemMessage,
+          ...buildAIRequest(config.ai),
           temperature: 1.0,
           hook_style: {
             font_name: hookStyle.fontName,
@@ -201,10 +209,21 @@ export function ProcessingClipsPage() {
     } catch (err) {
       const detail = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
       console.error("process_clips failed", err);
-      setError(detail);
-      appendLog(`❌ Error: ${detail}`);
+
+      // The balance can run dry mid-run — one job is many requests. Say so in
+      // those words and put the top-up in front of the user, rather than
+      // leaving them to decode a budget error from LiteLLM.
+      if (config.ai.source === "inapp" && isOutOfBalance(err)) {
+        setError("Your balance ran out partway through. Clips already finished are saved.");
+        appendLog("❌ Balance exhausted — top up to finish the rest.");
+        setShowTopup(true);
+        void refreshAccount();
+      } else {
+        setError(detail);
+        appendLog(`❌ Error: `);
+      }
     }
-  }, [url, highlights, sessionDir, options, config.ai, config.hookStyle, config.watermark, config.creditWatermark, config.clipPadding, appendLog, navigate]);
+  }, [url, highlights, sessionDir, options, config.ai, config.hookStyle, config.watermark, config.creditWatermark, config.clipPadding, activated, account, appInfo, refreshAccount, appendLog, navigate]);
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -356,6 +375,15 @@ export function ProcessingClipsPage() {
             Go to Library
           </Button>
         </div>
+      )}
+
+      {showTopup && (
+        <TopupDialog
+          onClose={() => {
+            setShowTopup(false);
+            void refreshAccount();
+          }}
+        />
       )}
     </div>
   );

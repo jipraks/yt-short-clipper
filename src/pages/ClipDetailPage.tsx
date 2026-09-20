@@ -23,6 +23,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useConfigStore } from "@/stores/configStore";
+import { inappSupported, useAccountStore } from "@/stores/accountStore";
+import { aiBlocker, blockerMessage, buildAIRequest } from "@/hooks/aiRuntime";
 import {
   replizListAccounts,
   replizUpload,
@@ -70,6 +72,7 @@ export function ClipDetailPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { config } = useConfigStore();
+  const { activated, account, appInfo } = useAccountStore();
   const state = location.state as ClipDetailState | undefined;
 
   const [postTitle, setPostTitle] = useState("");
@@ -139,9 +142,13 @@ export function ClipDetailPage() {
   };
 
   const generateTitles = async () => {
-    const tg = config.ai;
-    if (!tg.apiKey || !tg.model) {
-      toast.error("AI provider not configured. Go to AI Models settings.");
+    const blocker = aiBlocker(config.ai, {
+      activated,
+      account,
+      inappSupported: inappSupported(appInfo),
+    });
+    if (blocker) {
+      toast.error(blockerMessage(blocker));
       return;
     }
 
@@ -151,9 +158,7 @@ export function ClipDetailPage() {
         title: state.title,
         hookText: state.hookText,
         description: state.description,
-        apiKey: tg.apiKey,
-        baseUrl: tg.baseUrl,
-        model: tg.model,
+        ai: buildAIRequest(config.ai),
         // Lets the backend match the language this session was generated in.
         sessionDir: state.sessionDir,
       });

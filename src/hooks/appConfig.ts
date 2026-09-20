@@ -1,10 +1,45 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export interface AIProviderSettings {
+/**
+ * Which AI the app infers with.
+ *
+ * `inapp` uses the device account: the balance is topped up with QRIS inside
+ * the app and the LiteLLM key never reaches this process — Rust resolves it.
+ * `custom` is the user's own OpenAI-compatible endpoint and key, including the
+ * separate wallet at ai.ytclip.org.
+ */
+export type AISource = "inapp" | "custom";
+
+export interface CustomAISettings {
   baseUrl: string;
   apiKey: string;
   model: string;
-  systemMessage?: string;
+}
+
+export interface InappAISettings {
+  model: string;
+}
+
+export interface AISettings {
+  source: AISource;
+  custom: CustomAISettings;
+  inapp: InappAISettings;
+  /**
+   * Highlight-finder prompt override. Shared by both sources deliberately — it
+   * is a prompt, not a credential, and re-typing it on every switch would be
+   * the kind of small cruelty nobody notices until they have done it twice.
+   */
+  systemMessage: string;
+}
+
+export interface AccountSettings {
+  /**
+   * When the user confirmed they had saved their account key, ISO 8601.
+   *
+   * Null blocks the first top-up: the server keeps no recovery path, so money
+   * must not go in before the only key to it is somewhere safe.
+   */
+  keyBackupConfirmedAt: string | null;
 }
 
 export interface WatermarkSettings {
@@ -63,7 +98,8 @@ export const MAX_CLIP_PADDING = 15;
 
 export interface AppConfig {
   /** Single AI provider shared by highlight finding and title generation. */
-  ai: AIProviderSettings;
+  ai: AISettings;
+  account: AccountSettings;
   gpuAcceleration: {
     enabled: boolean;
   };
@@ -78,10 +114,19 @@ export interface AppConfig {
 
 export const DEFAULT_CONFIG: AppConfig = {
   ai: {
-    baseUrl: "https://ai-api.ytclip.org/v1",
-    apiKey: "",
-    model: "",
+    source: "inapp",
+    custom: {
+      baseUrl: "https://ai-api.ytclip.org/v1",
+      apiKey: "",
+      model: "",
+    },
+    inapp: {
+      model: "",
+    },
     systemMessage: "",
+  },
+  account: {
+    keyBackupConfirmedAt: null,
   },
   gpuAcceleration: {
     enabled: false,
@@ -193,16 +238,60 @@ export async function readWatermark(path: string): Promise<string> {
   return invoke<string>("read_watermark", { path });
 }
 
-function mergeConfig(config: Partial<AppConfig> | undefined): AppConfig {
-  // Migrate from the legacy per-task shape (aiProviders.highlightFinder) so
-  // users who already configured a key don't have to re-enter it.
-  const legacyAi = (config as { aiProviders?: { highlightFinder?: Partial<AIProviderSettings> } } | undefined)
-    ?.aiProviders?.highlightFinder;
+/** The flat `{ baseUrl, apiKey, model }` shape that predates the source split. */
+interface LegacyFlatAI {
+  baseUrl?: string;
+  apiKey?: string;
+  model?: string;
+  systemMessage?: string;
+}
+
+/**
+ * Reads whatever shape is on disk into the current one.
+ *
+ * Two migrations live here. The older is `aiProviders.highlightFinder`, from
+ * when every task carried its own provider. The newer is the flat `ai` block
+ * that existed before in-app accounts — and its rule is the one that matters:
+ * a user who already typed a key keeps `custom`, because flipping a working
+ * install into a mode that demands activation is how an update becomes a
+ * support ticket. Only a genuinely empty config lands on `inapp`.
+ */
+function mergeAI(raw: unknown, legacy: LegacyFlatAI | undefined): AISettings {
+  const value = (raw ?? {}) as Partial<AISettings> & LegacyFlatAI;
+
+  if (value.source === "inapp" || value.source === "custom") {
+    return {
+      source: value.source,
+      custom: { ...DEFAULT_CONFIG.ai.custom, ...value.custom },
+      inapp: { ...DEFAULT_CONFIG.ai.inapp, ...value.inapp },
+      systemMessage: value.systemMessage ?? DEFAULT_CONFIG.ai.systemMessage,
+    };
+  }
+
+  const flat: LegacyFlatAI = { ...legacy, ...value };
+  const hasKey = (flat.apiKey ?? "").trim() !== "";
+
   return {
-    ai: {
-      ...DEFAULT_CONFIG.ai,
-      ...legacyAi,
-      ...config?.ai,
+    source: hasKey ? "custom" : "inapp",
+    custom: {
+      baseUrl: flat.baseUrl || DEFAULT_CONFIG.ai.custom.baseUrl,
+      apiKey: flat.apiKey ?? "",
+      model: flat.model ?? "",
+    },
+    inapp: { ...DEFAULT_CONFIG.ai.inapp },
+    systemMessage: flat.systemMessage ?? DEFAULT_CONFIG.ai.systemMessage,
+  };
+}
+
+function mergeConfig(config: Partial<AppConfig> | undefined): AppConfig {
+  const legacyAi = (config as { aiProviders?: { highlightFinder?: LegacyFlatAI } } | undefined)
+    ?.aiProviders?.highlightFinder;
+
+  return {
+    ai: mergeAI(config?.ai, legacyAi),
+    account: {
+      ...DEFAULT_CONFIG.account,
+      ...config?.account,
     },
     gpuAcceleration: {
       ...DEFAULT_CONFIG.gpuAcceleration,

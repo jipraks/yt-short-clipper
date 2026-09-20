@@ -4,7 +4,8 @@ import {
   saveAppConfig,
   DEFAULT_CONFIG,
   type AppConfig,
-  type AIProviderSettings,
+  type AISource,
+  type CustomAISettings,
   type WatermarkSettings,
   type CreditWatermarkSettings,
   type HookStyleSettings,
@@ -16,14 +17,17 @@ interface ConfigState {
   config: AppConfig;
   loaded: boolean;
   load: () => Promise<void>;
-  setAI: (settings: AIProviderSettings) => Promise<void>;
+  setAISource: (source: AISource) => Promise<void>;
+  setCustomAI: (custom: CustomAISettings) => Promise<void>;
+  setInappModel: (model: string) => Promise<void>;
+  setSystemMessage: (systemMessage: string) => Promise<void>;
+  confirmKeyBackup: () => Promise<void>;
   setGpuAcceleration: (enabled: boolean) => Promise<void>;
   setWatermark: (watermark: WatermarkSettings) => Promise<void>;
   setCreditWatermark: (creditWatermark: CreditWatermarkSettings) => Promise<void>;
   setHookStyle: (hookStyle: HookStyleSettings) => Promise<void>;
   setClipPadding: (clipPadding: ClipPaddingSettings) => Promise<void>;
   setRepliz: (repliz: ReplizSettings) => Promise<void>;
-  isAIConfigured: () => boolean;
 }
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
@@ -39,13 +43,49 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     }
   },
 
-  setAI: async (settings) => {
+  setAISource: async (source) => {
+    const current = get().config;
     const next: AppConfig = {
-      ...get().config,
-      ai: settings,
+      ...current,
+      ai: { ...current.ai, source },
     };
-    const saved = await saveAppConfig(next);
-    set({ config: saved });
+    set({ config: await saveAppConfig(next) });
+  },
+
+  setCustomAI: async (custom) => {
+    const current = get().config;
+    const next: AppConfig = {
+      ...current,
+      ai: { ...current.ai, custom },
+    };
+    set({ config: await saveAppConfig(next) });
+  },
+
+  setInappModel: async (model) => {
+    const current = get().config;
+    const next: AppConfig = {
+      ...current,
+      ai: { ...current.ai, inapp: { ...current.ai.inapp, model } },
+    };
+    set({ config: await saveAppConfig(next) });
+  },
+
+  setSystemMessage: async (systemMessage) => {
+    const current = get().config;
+    const next: AppConfig = {
+      ...current,
+      ai: { ...current.ai, systemMessage },
+    };
+    set({ config: await saveAppConfig(next) });
+  },
+
+  confirmKeyBackup: async () => {
+    const current = get().config;
+    const next: AppConfig = {
+      ...current,
+      account: { keyBackupConfirmedAt: new Date().toISOString() },
+    };
+    set({ config: await saveAppConfig(next) });
   },
 
   setGpuAcceleration: async (enabled) => {
@@ -100,10 +140,5 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     };
     const saved = await saveAppConfig(next);
     set({ config: saved });
-  },
-
-  isAIConfigured: () => {
-    const p = get().config.ai;
-    return !!p && p.apiKey.trim() !== "" && p.model.trim() !== "";
   },
 }));

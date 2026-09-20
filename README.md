@@ -39,12 +39,24 @@ FFmpeg, MediaPipe)
 
 ### AI providers
 
-A single provider is configured once in **AI Models** and shared by highlight detection
-and title generation. Anything OpenAI-compatible works; the app ships presets for OpenAI,
-Google Gemini, Groq, ApiSmart, the maintainer's own YTClip AI gateway, and a
-Custom/Local option for vLLM, Ollama, or similar. Your API key is stored in the app's
-local data directory — it is never committed and never sent anywhere except the provider
-you configured.
+One provider serves the whole app — highlight detection and title generation both — and
+is chosen once in **AI Models**. There are two ways to power it.
+
+**In-app AI.** The app provisions its own wallet for this installation on first launch: no
+registration, no email, no API key to paste. Top up with QRIS from inside the app and the
+balance shows in the sidebar. The wallet is held by a key kept in the OS credential store
+(Windows Credential Manager, Keychain, libsecret) — never in a config file. There is no
+server-side recovery, so export that key and keep it somewhere safe: it is the only way
+to reach the balance from another machine, and nobody can restore it for you. Top-ups are
+not refundable.
+
+**Your own API key.** Anything OpenAI-compatible works; the app ships presets for OpenAI,
+Google Gemini, Groq, ApiSmart, the web wallet at ai.ytclip.org, and a Custom/Local option
+for vLLM, Ollama, or similar. Your key is stored in the app's local data directory and is
+never sent anywhere except the provider you configured.
+
+The two are separate wallets. A balance topped up at ai.ytclip.org is reached through the
+"YTClip AI (Web)" preset under your own API key, not through the in-app balance.
 
 ### AI direction
 
@@ -157,6 +169,8 @@ own backend rather than a third party:
 |---|---|---|
 | YouTube / `googlevideo` (via yt-dlp) | Fetching video + subtitles | Your YouTube cookies |
 | Your configured AI provider | Highlight + title generation | Subtitle transcript, your prompt, your API key |
+| `api-v2.ytclip.org/api/public/v1` | Only if you use in-app AI | Platform and app version at activation; afterwards your device token, to read the balance and create QRIS invoices |
+| `ai-api.ytclip.org/v1` | Only if you use in-app AI | Subtitle transcript and your prompt, with the key the app issued itself |
 | `api.ytclip.org/webhook/yt-clipper/latest-version` | On launch | Random installation ID, app version |
 | `api.ytclip.org/webhook/yt-clipper/notification` | On launch | Random installation ID, app version |
 | `api.ytclip.org/webhook/yt-clipper/menu` | On launch | Random installation ID, app version |
