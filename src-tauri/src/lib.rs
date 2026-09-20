@@ -40,7 +40,8 @@ pub fn run() {
             commands::account::account_topup_get,
             commands::account::account_topups,
             commands::account::account_usage,
-            commands::account::account_app_info
+            commands::account::account_app_info,
+            commands::analytics::analytics_track
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

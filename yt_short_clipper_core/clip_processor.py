@@ -293,6 +293,10 @@ def process_selected_highlights(
             "clip_index": highlight_index,
             "output_path": str(output_file),
             "title": h.get("title", ""),
+            # The padded length, i.e. what the file actually runs for. The
+            # caller reports this; the highlight's own duration_seconds is the
+            # model's pick and understates it by the padding.
+            "duration_seconds": round(clip_end - clip_start, 3),
         })
 
         # Cleanup temp files for this clip

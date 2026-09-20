@@ -171,21 +171,29 @@ own backend rather than a third party:
 | Your configured AI provider | Highlight + title generation | Subtitle transcript, your prompt, your API key |
 | `api-v2.ytclip.org/api/public/v1` | Only if you use in-app AI | Platform and app version at activation; afterwards your device token, to read the balance and create QRIS invoices |
 | `ai-api.ytclip.org/v1` | Only if you use in-app AI | Subtitle transcript and your prompt, with the key the app issued itself |
-| `api.ytclip.org/webhook/yt-clipper/latest-version` | On launch | Random installation ID, app version |
-| `api.ytclip.org/webhook/yt-clipper/notification` | On launch | Random installation ID, app version |
-| `api.ytclip.org/webhook/yt-clipper/menu` | On launch | Random installation ID, app version |
-| `api.ytclip.org/webhook/yt-clipper/success-log` | After a clip renders | Random installation ID, app version, clip duration, reframe mode |
+| `api-v2.ytclip.org/api/public/v1/app` | On launch | Nothing — the request carries no parameters |
+| `api-v2.ytclip.org/api/public/v1/notification` | On launch | Nothing |
+| `api-v2.ytclip.org/api/public/v1/menu` | On launch | Nothing |
+| `google-analytics.com/mp/collect` | After a clip renders | Random installation ID, app version, clip duration, reframe mode |
 | `api.ytclip.org/webhook/yt-clipper/presigned-url` + `api.repliz.com` | Only if you use Repliz upload | Filename, the video file, your Repliz keys |
 
-No video content, transcript, or account identity is sent to `api.ytclip.org`. The
-installation ID is a random value generated locally, not tied to any account. If you fork
-this, point these at your own backend or strip them out — see
-[`src/hooks/`](src/hooks/).
+No video content or transcript is sent to any `ytclip.org` host except the AI endpoint you
+pick — and that one only receives what you would send any AI provider. The installation ID
+is a random UUID generated locally on first run, not tied to any account.
+
+Google Analytics is the one third party here. It receives the installation ID, the app
+version, and each finished clip's duration and reframe mode — plus, as with any HTTP
+request, your IP address, which Google uses for coarse geolocation. No video, transcript,
+title, or URL is sent. Builds without `GA_API_SECRET` set at compile time send nothing at
+all.
+
+If you fork this, point these at your own backend or strip them out — see
+[`src/hooks/`](src/hooks/) and [`src-tauri/src/commands/analytics.rs`](src-tauri/src/commands/analytics.rs).
 
 ### Sidebar links
 
 The external links at the bottom of the sidebar are served by
-`api.ytclip.org/webhook/yt-clipper/menu`, so they can change without an app release.
+`api-v2.ytclip.org/api/public/v1/menu`, so they can change without an app release.
 The four page routes above them stay hardcoded.
 
 Icons are named by the API as kebab-case strings and resolved through the allowlist in

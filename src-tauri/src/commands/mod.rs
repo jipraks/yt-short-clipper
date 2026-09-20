@@ -1,4 +1,5 @@
 pub mod account;
+pub mod analytics;
 
 use serde::{Deserialize, Serialize};
 use std::fs;

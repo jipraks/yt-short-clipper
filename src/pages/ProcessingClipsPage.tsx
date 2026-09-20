@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { processClips, type ProcessOptions } from "@/hooks/processClips";
-import { logClipSuccess, type ClipSuccessFormat } from "@/hooks/successLog";
+import { trackClipRendered, type ReframeFormat } from "@/hooks/analytics";
 import { useConfigStore } from "@/stores/configStore";
 import { inappSupported, useAccountStore } from "@/stores/accountStore";
 import { aiBlocker, blockerMessage, buildAIRequest } from "@/hooks/aiRuntime";
@@ -177,11 +177,13 @@ export function ProcessingClipsPage() {
             setIsComplete(true);
           }
         },
-      }) as { results?: Array<{ clip_index?: number; skipped?: boolean }> });
+      }) as {
+        results?: Array<{ clip_index?: number; skipped?: boolean; duration_seconds?: number }>;
+      });
 
-      // Fire telemetry webhook: one request per successfully processed clip
-      // (skipped clips were processed in an earlier session and are excluded).
-      const format: ClipSuccessFormat =
+      // One analytics event per clip actually rendered here. Clips skipped
+      // because an earlier session already produced them are excluded.
+      const format: ReframeFormat =
         options.reframeMode === "original"
           ? "original-16-9"
           : options.reframeMode === "face"
@@ -189,6 +191,9 @@ export function ProcessingClipsPage() {
             : options.centeredBackground === "blurred"
               ? "centered-blur"
               : "centered-black";
+      // The worker reports the padded length — what the file actually runs
+      // for. Older sidecars omit it, so fall back to the model's own pick,
+      // which is short by the padding but better than dropping the event.
       const durationByIndex = new Map<number, number>();
       highlights.forEach((h) => {
         const idx = (h as { _highlight_index?: number })._highlight_index;
@@ -198,9 +203,9 @@ export function ProcessingClipsPage() {
       const processed = Array.isArray(result?.results) ? result.results : [];
       for (const r of processed) {
         if (r?.skipped) continue;
-        const dur = durationByIndex.get(r?.clip_index ?? -1);
+        const dur = r?.duration_seconds ?? durationByIndex.get(r?.clip_index ?? -1);
         if (typeof dur !== "number" || dur <= 0) continue;
-        void logClipSuccess({ duration: dur, format });
+        trackClipRendered({ durationSeconds: dur, format });
       }
 
       setIsComplete(true);
