@@ -542,11 +542,22 @@ fn app_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(cookies_dir(app)?.join("config.json"))
 }
 
+/// Mirrors `DEFAULT_CONFIG` in `src/hooks/appConfig.ts`.
+///
+/// Returned only when config.json does not exist yet. The frontend's
+/// `mergeConfig` is the real source of truth — it layers whatever comes back
+/// from here over its own defaults, so a key added there and forgotten here
+/// still resolves. Keeping the two in step matters anyway: the first save
+/// writes this shape to disk, and a drifting copy is how the old
+/// `aiProviders` / `whisper-1` block survived long after it stopped meaning
+/// anything.
 fn default_app_config() -> serde_json::Value {
     serde_json::json!({
-        "aiProviders": {
-            "highlightFinder": { "baseUrl": "https://ai-api.ytclip.org/v1", "apiKey": "", "model": "", "systemMessage": "" },
-            "titleGenerator": { "baseUrl": "https://ai-api.ytclip.org/v1", "apiKey": "", "model": "" }
+        "ai": {
+            "baseUrl": "https://ai-api.ytclip.org/v1",
+            "apiKey": "",
+            "model": "",
+            "systemMessage": ""
         },
         "gpuAcceleration": { "enabled": false },
         "watermark": {
@@ -566,10 +577,26 @@ fn default_app_config() -> serde_json::Value {
             "positionX": 0.03,
             "positionY": 0.92
         },
+        "hookStyle": {
+            "fontName": "Arial",
+            "fontPath": "",
+            "fontSize": 0.054,
+            "fontColor": "#FFD700",
+            "bgColor": "#FFFFFF",
+            "cornerRadius": 0,
+            "positionX": 0.5,
+            "positionY": 0.333,
+            "durationSeconds": 5
+        },
+        "clipPadding": {
+            "leadIn": 1.5,
+            "tailOut": 2.5
+        },
         "repliz": {
             "accessKey": "",
             "secretKey": ""
-        }
+        },
+        "installationId": ""
     })
 }
 
