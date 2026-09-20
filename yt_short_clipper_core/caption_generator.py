@@ -8,11 +8,38 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
 
+import cv2
+
 from .helpers import get_ffmpeg_path
 
 LogFn = Callable[[str], None]
 
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+# The caption style below was authored against a 1080x1920 portrait frame. Every
+# metric is scaled from this reference to whatever the clip actually is, so the
+# portrait path is unchanged (the ratios come out at 1.0) while a 16:9 clip gets
+# proportionate captions instead of stretched ones.
+_REF_WIDTH = 1080
+_REF_HEIGHT = 1920
+
+
+def _probe_resolution(video_path: str) -> tuple[int, int]:
+    """Return the video's (width, height), falling back to the portrait reference."""
+    cap = None
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if cap.isOpened():
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            if width > 0 and height > 0:
+                return width, height
+    except Exception:
+        pass
+    finally:
+        if cap is not None:
+            cap.release()
+    return _REF_WIDTH, _REF_HEIGHT
 
 
 def _format_ass_time(seconds: float) -> str:
@@ -24,20 +51,39 @@ def _format_ass_time(seconds: float) -> str:
     return f"{hours}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
 
 
-def _create_ass_subtitle(transcript: SimpleNamespace, output_path: str, time_offset: float = 0) -> None:
+def _create_ass_subtitle(
+    transcript: SimpleNamespace,
+    output_path: str,
+    width: int = _REF_WIDTH,
+    height: int = _REF_HEIGHT,
+    time_offset: float = 0,
+) -> None:
     """Create ASS subtitle file with CapCut-style word-by-word highlighting."""
 
-    ass_content = """[Script Info]
+    # libass stretches the declared script canvas onto the video frame, so a
+    # fixed 1080x1920 PlayRes would squash captions flat on a landscape clip
+    # (1.78x wide, 0.56x tall). Declare the real resolution instead and scale
+    # the style from the reference: type size, outline and vertical placement
+    # follow height; side margins follow width.
+    scale_x = width / _REF_WIDTH
+    scale_y = height / _REF_HEIGHT
+    font_size = max(8, round(65 * scale_y))
+    outline = max(1, round(4 * scale_y))
+    shadow = max(0, round(2 * scale_y))
+    margin_side = max(0, round(50 * scale_x))
+    margin_v = max(0, round(400 * scale_y))
+
+    ass_content = f"""[Script Info]
 Title: Auto-generated captions
 ScriptType: v4.00+
 WrapStyle: 0
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: {width}
+PlayResY: {height}
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial Black,65,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,50,50,400,1
+Style: Default,Arial Black,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline},{shadow},2,{margin_side},{margin_side},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -118,10 +164,11 @@ def generate_captions_from_words(
         segments=[],
     )
 
-    # Step 1: Generate ASS subtitle
-    log("Generating subtitle file...")
+    # Step 1: Generate ASS subtitle, sized to this clip's actual frame
+    width, height = _probe_resolution(input_video_path)
+    log(f"Generating subtitle file for {width}x{height}...")
     ass_file = str(temp_dir / "captions.ass")
-    _create_ass_subtitle(transcript, ass_file, time_offset=0)
+    _create_ass_subtitle(transcript, ass_file, width=width, height=height, time_offset=0)
 
     # Step 2: Burn subtitles into video
     log("Burning captions into video...")

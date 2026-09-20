@@ -24,6 +24,10 @@ LogFn = Callable[[str], None]
 # little, but the trailing edge is what actually cuts explanations off.
 DEFAULT_LEAD_IN = 1.5
 DEFAULT_TAIL_OUT = 2.5
+
+# Reframe mode that keeps the source framing instead of producing a 9:16 clip —
+# for people who take the footage into their own editor.
+REFRAME_ORIGINAL = "original"
 # Ceiling for the user-configurable values. Past this a clip stops being a clip,
 # and adjacent highlights would start swallowing each other.
 MAX_PADDING = 15.0
@@ -86,8 +90,14 @@ def _resolve_padding(ai: dict[str, Any]) -> tuple[float, float]:
 
 
 def _run_portrait(input_path: str, output_path: str, options: dict[str, Any], log: LogFn) -> str:
-    """Run portrait conversion — face-tracked or centered, based on reframeMode."""
+    """Run portrait conversion — face-tracked, centered, or skipped entirely."""
     reframe_mode = options.get("reframeMode", "face")
+    if reframe_mode == REFRAME_ORIGINAL:
+        # Nothing to reframe: hand the downloaded section straight back. The
+        # later steps each write to their own temp file, so passing the input
+        # through is safe — and this skips the most expensive step in the
+        # pipeline, since no re-encode happens at all.
+        return input_path
     if reframe_mode == "centered":
         background = options.get("centeredBackground", "black")
         return convert_to_portrait_centered(input_path, output_path, background=background, log=log)
@@ -122,8 +132,12 @@ def process_selected_highlights(
     add_watermark = options.get("addWatermark", False)
     add_credit_watermark = options.get("addCreditWatermark", False)
 
+    keep_original = options.get("reframeMode") == REFRAME_ORIGINAL
+
     lead_in, tail_out = _resolve_padding(ai)
     log(f"Clip padding: {lead_in:.1f}s before / {tail_out:.1f}s after each range")
+    if keep_original:
+        log("Reframe mode: original — clips keep the source 16:9 framing")
 
     # Word-level caption timing for the full source video (from the original
     # subtitle track). Empty if unavailable — captions are then skipped.
@@ -179,7 +193,10 @@ def process_selected_highlights(
         # Step 2: Portrait conversion
         portrait_path = str(temp_dir / f"portrait_{i:03d}.mp4")
         video_path = _run_portrait(video_path, portrait_path, options, log)
-        log(f"[{i}/{total}] Portrait conversion complete")
+        if keep_original:
+            log(f"[{i}/{total}] Portrait conversion skipped (keeping 16:9)")
+        else:
+            log(f"[{i}/{total}] Portrait conversion complete")
 
         # Step 3: Hook generation (text overlay on the opening seconds)
         if add_hook:
@@ -261,6 +278,7 @@ def process_selected_highlights(
             "source_start_time": h["start_time"],
             "source_end_time": h["end_time"],
             "padding": {"lead_in": lead_in, "tail_out": tail_out},
+            "reframe_mode": options.get("reframeMode", "face"),
             "has_hook": add_hook and bool(h.get("hook_text")),
             "has_captions": clip_had_captions,
             "youtube_title": h.get("title", ""),

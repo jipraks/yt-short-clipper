@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Film, AlignLeft, Quote, Image as ImageIcon, User, ScanFace, Square, Eye, Sparkles, Zap } from "lucide-react";
+import { X, Film, AlignLeft, Quote, Image as ImageIcon, User, ScanFace, Square, RectangleHorizontal, Eye, Sparkles, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Card } from "@/components/ui/card";
@@ -9,7 +9,9 @@ import type { ReframeMode, CenteredBackground } from "@/hooks/processClips";
 export type { ProcessOptions } from "@/hooks/processClips";
 import type { ProcessOptions } from "@/hooks/processClips";
 
-const SAMPLE_IMAGES: Record<ReframeMode, string> = {
+// "original" has no sample image — it is simply the source frame, so the
+// preview link is hidden for it rather than showing something misleading.
+const SAMPLE_IMAGES: Partial<Record<ReframeMode, string>> = {
   face: "/sample-face-tracking.png",
   centered: "/sample-centered-black.png",
 };
@@ -17,6 +19,7 @@ const SAMPLE_IMAGES: Record<ReframeMode, string> = {
 const SAMPLE_LABELS: Record<ReframeMode, string> = {
   face: "Face Tracking",
   centered: "Centered (Black bars)",
+  original: "Original 16:9",
 };
 
 const BG_SAMPLE_IMAGES: Record<CenteredBackground, string> = {
@@ -66,7 +69,7 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
 
   const currentPreviewSrc = reframeMode === "centered"
     ? BG_SAMPLE_IMAGES[centeredBackground]
-    : SAMPLE_IMAGES[reframeMode];
+    : SAMPLE_IMAGES[reframeMode] ?? null;
   const currentPreviewLabel = reframeMode === "centered"
     ? `${BG_SAMPLE_LABELS[centeredBackground]} background`
     : SAMPLE_LABELS[reframeMode];
@@ -150,13 +153,15 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
                 <p className="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">
                   Reframe Mode
                 </p>
-                <button
-                  onClick={() => setPreviewSrc(currentPreviewSrc)}
-                  className="flex items-center gap-1 text-xs text-[var(--color-accent)] hover:underline"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  View example
-                </button>
+                {currentPreviewSrc && (
+                  <button
+                    onClick={() => setPreviewSrc(currentPreviewSrc)}
+                    className="flex items-center gap-1 text-xs text-[var(--color-accent)] hover:underline"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    View example
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -190,6 +195,24 @@ export function ProcessConfirmDialog({ clipCount, captionsAvailable = true, onCo
                   <Square className="w-5 h-5 text-[var(--color-accent)]" />
                   <p className="text-sm font-medium text-[var(--color-text-primary)]">Centered</p>
                   <p className="text-xs text-[var(--color-text-muted)]">Video centered in frame — much faster</p>
+                </button>
+                <button
+                  onClick={() => setReframeMode("original")}
+                  className={`relative col-span-2 flex flex-col gap-1.5 p-3 rounded-[var(--radius-sm)] border text-left transition-colors ${
+                    reframeMode === "original"
+                      ? "border-[var(--color-accent)] bg-[var(--color-bg-secondary)]"
+                      : "border-transparent bg-[var(--color-bg-secondary)] hover:border-[var(--color-border-light)]"
+                  }`}
+                >
+                  <span className="absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-[var(--color-warning-bg)] text-[var(--color-warning)] text-[10px] font-semibold">
+                    <Zap className="w-2.5 h-2.5" />
+                    Fastest
+                  </span>
+                  <RectangleHorizontal className="w-5 h-5 text-[var(--color-accent)]" />
+                  <p className="text-sm font-medium text-[var(--color-text-primary)]">Original 16:9</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    No reframing — full-quality source footage for editing yourself
+                  </p>
                 </button>
               </div>
             </div>

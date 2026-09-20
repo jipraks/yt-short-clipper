@@ -65,7 +65,11 @@ export function ProcessingClipsPage() {
     if (lastLog.includes("section downloaded")) {
       setCurrentStep(1);
     }
-    if (lastLog.includes("portrait conversion complete") || lastLog.includes("portrait complete")) {
+    if (
+      lastLog.includes("portrait conversion complete") ||
+      lastLog.includes("portrait complete") ||
+      lastLog.includes("portrait conversion skipped")
+    ) {
       setCurrentStep(2);
     }
     if (lastLog.includes("hook generation complete") || lastLog.includes("hook complete") || lastLog.includes("hook generation skipped")) {
@@ -147,7 +151,11 @@ export function ProcessingClipsPage() {
           // Step transitions happen when a step COMPLETES, not when it starts
           if (m.includes("section downloaded")) {
             setCurrentStep(1); // Download done → now doing Portrait
-          } else if (m.includes("portrait conversion complete") || m.includes("portrait complete")) {
+          } else if (
+            m.includes("portrait conversion complete") ||
+            m.includes("portrait complete") ||
+            m.includes("portrait conversion skipped")
+          ) {
             setCurrentStep(2); // Portrait done → now doing Hook
           } else if (m.includes("hook generation complete") || m.includes("hook complete") || m.includes("hook generation skipped")) {
             setCurrentStep(3); // Hook done → now doing Caption
@@ -166,11 +174,13 @@ export function ProcessingClipsPage() {
       // Fire telemetry webhook: one request per successfully processed clip
       // (skipped clips were processed in an earlier session and are excluded).
       const format: ClipSuccessFormat =
-        options.reframeMode === "face"
-          ? "face-tracking"
-          : options.centeredBackground === "blurred"
-            ? "centered-blur"
-            : "centered-black";
+        options.reframeMode === "original"
+          ? "original-16-9"
+          : options.reframeMode === "face"
+            ? "face-tracking"
+            : options.centeredBackground === "blurred"
+              ? "centered-blur"
+              : "centered-black";
       const durationByIndex = new Map<number, number>();
       highlights.forEach((h) => {
         const idx = (h as { _highlight_index?: number })._highlight_index;
@@ -244,7 +254,13 @@ export function ProcessingClipsPage() {
         <div className="space-y-2">
           {[
             { label: "Download video sections", step: 0 },
-            { label: "Portrait conversion (9:16)", step: 1 },
+            {
+              label:
+                options.reframeMode === "original"
+                  ? "Portrait conversion (skipped — 16:9)"
+                  : "Portrait conversion (9:16)",
+              step: 1,
+            },
             { label: "Hook generation", step: 2, required: options.addHook },
             { label: "Caption generation", step: 3, required: options.addCaptions },
             { label: "Watermark overlay", step: 4, required: options.addWatermark || options.addCreditWatermark },

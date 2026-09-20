@@ -1,6 +1,7 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 
-export type ReframeMode = "face" | "centered";
+/** "original" keeps the source 16:9 framing — no portrait conversion at all. */
+export type ReframeMode = "face" | "centered" | "original";
 export type CenteredBackground = "black" | "blurred";
 
 export interface ProcessOptions {
