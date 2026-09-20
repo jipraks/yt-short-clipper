@@ -69,9 +69,8 @@ development. Jangan pernah commit `GA_API_SECRET`.
 
 > Fork yang mau pakai property sendiri: set juga `GA_MEASUREMENT_ID`.
 
-> Cargo cache hasil compile berdasarkan nilai env var ini. Kalau diubah, jalankan
-> `cargo clean -p yt-short-clipper-v2` di `src-tauri/` supaya nilainya benar-benar
-> ikut terbawa — kalau tidak, binary lama dipakai ulang dengan nilai lama.
+> Cargo melacak env var ini lewat dep-info, jadi mengubah nilainya otomatis memicu
+> rebuild. Tidak perlu `cargo clean`.
 
 ---
 
