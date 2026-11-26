@@ -27,7 +27,7 @@ export function AdvertiseDialog({ onClose }: AdvertiseDialogProps) {
 
   // Opens the user's mail client with a draft. It composes; it never sends.
   const composeEmail = () => {
-    const subject = encodeURIComponent("Link placement in YT Short Clipper");
+    const subject = encodeURIComponent("Link placement in Cuplik");
     openUrl(`mailto:${ADS_EMAIL}?subject=${subject}`).catch(() => {
       toast.error(`No mail app found — email us at ${ADS_EMAIL}`);
     });

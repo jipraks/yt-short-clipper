@@ -128,7 +128,7 @@ export function CreditsPage() {
           Open Source Credits
         </h1>
         <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          YT Short Clipper is built with the following open source libraries. We are grateful to
+          Cuplik is built with the following open source libraries. We are grateful to
           their authors and contributors.
         </p>
       </div>
@@ -140,7 +140,7 @@ export function CreditsPage() {
             <p className="text-sm font-medium">Version {APP_VERSION}</p>
           </div>
           <p className="text-xs text-[var(--color-text-muted)] mt-1">
-            YT Short Clipper v2, built with React 19, Tauri 2, and Python 3.13.
+            Cuplik, built with React 19, Tauri 2, and Python 3.13.
           </p>
         </CardContent>
       </Card>

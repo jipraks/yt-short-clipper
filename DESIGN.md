@@ -32,11 +32,22 @@ of pure black, and a warmer, muted red instead of the bright YouTube red.
 Calm (kalem): hover and state changes only. No entrance animations, no
 decorative motion.
 
-## Logo
+## Name and logo
 
-The app name as text, **"YT Short Clipper"**, set in Plus Jakarta Sans. No
-symbol until a real logo exists. (`icon.png` stays as the window and taskbar
-icon.)
+The app is **Cuplik** (from "cuplikan", a clip or excerpt), renamed on
+2026-11-26 to drop "YT". The landing page will live at cuplik.jipraks.id.
+
+The wordmark follows the owner's sketch, rebuilt in Plus Jakarta Sans so it
+matches the UI: **CUPLIK** in uppercase, semibold, with **CUP** in the red text
+tone `#EA7060` and **LIK** in white (`src/components/brand/Wordmark.tsx`). It
+is live text, not an image. `icon.png` is still the old window and taskbar
+icon until a new one is made.
+
+Only the visible name changed. The app identifier `com.jipraks.ytshortclipper-v2`
+stays, because it names the folder that holds every user's cookies, config,
+account key and sessions. The exe and release zip names (`YTShortClipperV2`),
+the sidecar name and the `ytclip.org` service domains are left for the release
+work.
 
 ## Language
 

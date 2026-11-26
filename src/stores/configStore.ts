@@ -93,8 +93,10 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   },
 
   setLanguage: async (language) => {
-    await i18n.changeLanguage(language);
+    // Save first: if config.json cannot be written, the UI keeps its language
+    // rather than switching to one that will not survive a restart.
     const saved = await saveAppConfig({ ...get().config, language });
+    await i18n.changeLanguage(language);
     set({ config: saved });
   },
 

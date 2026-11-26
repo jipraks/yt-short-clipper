@@ -31,7 +31,7 @@ export function UpdateDialog({ update, onClose }: UpdateDialogProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-[var(--color-text-secondary)]">
-            A new version of YT Short Clipper is available.
+            A new version of Cuplik is available.
           </p>
 
           <div className="space-y-1 text-sm">

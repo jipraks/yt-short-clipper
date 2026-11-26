@@ -15,6 +15,7 @@ import { ProcessingClipsPage } from "@/pages/ProcessingClipsPage";
 import { ClipDetailPage } from "@/pages/ClipDetailPage";
 import { ReplizSettingsPage } from "@/pages/ReplizSettingsPage";
 import { CreditsPage } from "@/pages/CreditsPage";
+import { LanguagePickerPage } from "@/pages/LanguagePickerPage";
 import { UpdateDialog } from "@/components/UpdateDialog";
 import { NotificationDialog } from "@/components/NotificationDialog";
 import { checkForUpdate, type LatestVersionResponse } from "@/hooks/versionCheck";
@@ -28,6 +29,8 @@ function App() {
   const [notification, setNotification] = useState<NotificationResponse | null>(null);
   const setStoreUpdate = useAppStore((s) => s.setAvailableUpdate);
   const loadConfig = useConfigStore((s) => s.load);
+  const configLoaded = useConfigStore((s) => s.loaded);
+  const language = useConfigStore((s) => s.config.language);
   const initAccount = useAccountStore((s) => s.init);
 
   useEffect(() => {
@@ -47,6 +50,20 @@ function App() {
       if (result) setNotification(result);
     });
   }, []);
+
+  // Wait for config.json before choosing a screen, so a returning user never
+  // sees the language picker flash past.
+  if (!configLoaded) return null;
+
+  // First launch: nothing else is shown until a language is picked.
+  if (language === null) {
+    return (
+      <>
+        <LanguagePickerPage />
+        <Toaster position="bottom-right" richColors />
+      </>
+    );
+  }
 
   return (
     <>

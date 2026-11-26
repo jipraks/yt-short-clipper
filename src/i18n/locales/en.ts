@@ -7,10 +7,17 @@
  */
 export const en = {
   common: {
-    appName: "YT Short Clipper",
+    appName: "Cuplik",
     language: {
       id: "Bahasa Indonesia",
       en: "English",
     },
+  },
+  languagePicker: {
+    // Shown under this language's own option, so it is always in English.
+    optionHint: "Menus and guides in English.",
+    confirm: "Use English",
+    saving: "Saving…",
+    saveFailed: "Your language could not be saved. Try again.",
   },
 };
