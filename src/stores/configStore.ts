@@ -13,7 +13,7 @@ import {
   type ReplizSettings,
   type AppLanguage,
 } from "@/hooks/appConfig";
-import i18n from "@/i18n";
+import i18n, { rememberLanguage } from "@/i18n";
 
 interface ConfigState {
   config: AppConfig;
@@ -41,7 +41,10 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   load: async () => {
     try {
       const config = await loadAppConfig();
-      if (config.language) await i18n.changeLanguage(config.language);
+      if (config.language) {
+        rememberLanguage(config.language);
+        await i18n.changeLanguage(config.language);
+      }
       set({ config, loaded: true });
     } catch {
       set({ config: DEFAULT_CONFIG, loaded: true });
@@ -103,6 +106,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       language,
       termsAcceptedAt: new Date().toISOString(),
     });
+    rememberLanguage(language);
     await i18n.changeLanguage(language);
     set({ config: saved });
   },

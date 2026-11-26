@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router-dom";
 import { Toaster } from "sonner";
 import { useEffect, useState } from "react";
+import i18n from "@/i18n";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { CreatePage } from "@/pages/CreatePage";
 import { ProcessingPage } from "@/pages/ProcessingPage";
@@ -53,6 +54,12 @@ function App() {
       if (result) setNotification(result);
     });
   }, []);
+
+  // config.json is the source of truth for the UI language; keep i18n on it if
+  // anything else moved it.
+  useEffect(() => {
+    if (language && i18n.language !== language) void i18n.changeLanguage(language);
+  }, [language]);
 
   // Wait for config.json before choosing a screen, so a returning user never
   // sees the language picker flash past.

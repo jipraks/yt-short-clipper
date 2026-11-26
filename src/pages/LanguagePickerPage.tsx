@@ -17,8 +17,11 @@ const PRIVACY_URL = "https://cuplik.jipraks.id/privacy-policy";
  */
 export function LanguagePickerPage() {
   const setLanguage = useConfigStore((s) => s.setLanguage);
+  const savedLanguage = useConfigStore((s) => s.config.language);
+  // A saved choice wins over whatever the UI happens to be showing: someone
+  // shown this screen again to accept the Terms keeps the language they had.
   const [selected, setSelected] = useState<AppLanguage>(
-    i18n.language === "id" ? "id" : "en",
+    savedLanguage ?? (i18n.language === "id" ? "id" : "en"),
   );
   const [state, setState] = useState<"idle" | "saving" | "error">("idle");
   const [agreed, setAgreed] = useState(false);
