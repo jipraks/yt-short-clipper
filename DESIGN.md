@@ -11,12 +11,17 @@ already know it.
 
 ## Colour
 
-- Dark base: near-black background with lifted dark panels.
-- One brand colour: **YouTube red `#FF3B30`**.
-- Text on a red surface is **black** (`#0A0A0A`, contrast 5.58:1). White on
-  `#FF3B30` is only 3.55:1 and fails WCAG AA, so it is not used.
-- Red as text or icon on the dark base passes (5.58:1 on `#0A0A0A`, 4.80:1 on
-  `#1C1C1C`).
+Revised by the owner on 2026-11-26 to be easier on the eyes: charcoal instead
+of pure black, and a warmer, muted red instead of the bright YouTube red.
+
+- Base: charcoal `#1A1A1A`. Cards and the selected item: blue-grey `#24272C`.
+- Text: white `#FFFFFF`, secondary grey `#A0A0A0`.
+- One brand colour, red, in two tones by job:
+  - **Button red `#D34033`** with **white** text (4.61:1). Black text on it
+    fails (4.29:1).
+  - **Red text `#EA7060`** for red text, icons, error messages and focus rings.
+    It clears 4.5:1 on every surface. The owner's first pick for error text,
+    `#E05A47`, was 4.08:1 on cards, so the owner chose this lighter tone.
 
 ## Typography
 

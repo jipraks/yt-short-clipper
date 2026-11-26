@@ -17,7 +17,7 @@
         "center": true,
         "maximized": true,
         "theme": "Dark",
-        "backgroundColor": "#0A0A0A",
+        "backgroundColor": "#1A1A1A",
         "resizable": true,
         "decorations": true,
         "transparent": false

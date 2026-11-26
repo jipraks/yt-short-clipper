@@ -485,7 +485,7 @@ function Editor({
               aria-label={playing ? "Pause" : "Play clip"}
               disabled={!proxySrc}
               onClick={togglePlay}
-              className="mx-1 w-10 h-10 rounded-full bg-[var(--color-accent)] text-[var(--color-text-on-accent)] flex items-center justify-center hover:bg-[var(--color-accent-hover)] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+              className="mx-1 w-10 h-10 rounded-full bg-[var(--color-accent-fill)] text-[var(--color-text-on-accent)] flex items-center justify-center hover:bg-[var(--color-accent-hover)] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
             >
               {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
             </button>

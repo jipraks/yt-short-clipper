@@ -1,40 +1,45 @@
 @import "tailwindcss";
 
 @theme {
-  /* Backgrounds: near-black app shell, slightly lifted panels */
-  --color-bg-primary: #151515;
-  --color-bg-secondary: #0A0A0A;
-  --color-bg-card: #1C1C1C;
-  --color-bg-sidebar: #111111;
-  --color-bg-hover: #232323;
-  --color-bg-input: #181818;
+  /* Backgrounds: charcoal rather than pure black, so text sits on it without
+     the glare of a #000 edge (owner's palette, 2026-11-26). Cards lean a little
+     blue-grey so a selected item reads as lifted. */
+  --color-bg-primary: #1F2125;
+  --color-bg-secondary: #1A1A1A;
+  --color-bg-card: #24272C;
+  --color-bg-sidebar: #171717;
+  --color-bg-hover: #2A2D33;
+  --color-bg-input: #1F2125;
 
   /* Borders */
-  --color-border: #2A2A2A;
-  --color-border-light: #1F1F1F;
-  /* Focus rings use the brand red: 5.58:1 on the base, clearly visible. */
-  --color-border-focus: #FF3B30;
+  --color-border: #2E3138;
+  --color-border-light: #26292E;
+  /* Focus rings use the red text tone: clearly visible on every surface. */
+  --color-border-focus: #EA7060;
 
-  /* Accent: the one brand colour (DESIGN.md). Text on it is black, since
-     white on #FF3B30 is only 3.55:1. */
-  --color-accent: #FF3B30;
-  --color-accent-hover: #FF5A50;
-  --color-accent-light: #2A1311;
+  /* Accent, split by job. The button red (#D34033) is too dark to read as
+     text on charcoal (3.77:1), so red text, icons and small marks use the
+     lighter #EA7060, which clears 4.5:1 on every surface. */
+  --color-accent: #EA7060;
+  --color-accent-fill: #D34033;
+  --color-accent-hover: #C23A2E;
+  --color-accent-light: #2E1B19;
 
   /* Text */
-  --color-text-primary: #F5F5F5;
-  --color-text-secondary: #B3B3B3;
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #A0A0A0;
   /* Lightest grey that still clears 4.5:1 on every surface, hover included. */
-  --color-text-muted: #8A8A8A;
-  --color-text-on-accent: #0A0A0A;
+  --color-text-muted: #92959B;
+  /* On the #D34033 fill: white is 4.61:1, black only 4.29:1. */
+  --color-text-on-accent: #FFFFFF;
 
   /* Semantic */
   --color-success: #4ADE80;
-  --color-success-bg: #10251A;
+  --color-success-bg: #15281E;
   --color-warning: #FACC15;
-  --color-warning-bg: #2A2410;
-  --color-error: #F87171;
-  --color-error-bg: #2C1515;
+  --color-warning-bg: #2B2714;
+  --color-error: #EA7060;
+  --color-error-bg: #2E1B19;
 
   /* Radius */
   --radius-sm: 0.5rem;
