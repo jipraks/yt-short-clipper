@@ -112,6 +112,8 @@ export interface AppConfig {
   installationId: string;
   /** UI language the user picked on first launch; null until they pick one. */
   language: AppLanguage | null;
+  /** When the first-launch setup wizard was finished or skipped; null until then. */
+  onboardingCompletedAt: string | null;
 }
 
 export type AppLanguage = "id" | "en";
@@ -173,6 +175,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   installationId: "",
   language: null,
+  onboardingCompletedAt: null,
 };
 
 export async function loadAppConfig(): Promise<AppConfig> {
@@ -327,5 +330,9 @@ function mergeConfig(config: Partial<AppConfig> | undefined): AppConfig {
       config?.language === "id" || config?.language === "en"
         ? config.language
         : DEFAULT_CONFIG.language,
+    onboardingCompletedAt:
+      typeof config?.onboardingCompletedAt === "string"
+        ? config.onboardingCompletedAt
+        : DEFAULT_CONFIG.onboardingCompletedAt,
   };
 }

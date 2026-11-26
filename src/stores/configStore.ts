@@ -31,6 +31,7 @@ interface ConfigState {
   setClipPadding: (clipPadding: ClipPaddingSettings) => Promise<void>;
   setRepliz: (repliz: ReplizSettings) => Promise<void>;
   setLanguage: (language: AppLanguage) => Promise<void>;
+  completeOnboarding: () => Promise<void>;
 }
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
@@ -97,6 +98,14 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     // rather than switching to one that will not survive a restart.
     const saved = await saveAppConfig({ ...get().config, language });
     await i18n.changeLanguage(language);
+    set({ config: saved });
+  },
+
+  completeOnboarding: async () => {
+    const saved = await saveAppConfig({
+      ...get().config,
+      onboardingCompletedAt: new Date().toISOString(),
+    });
     set({ config: saved });
   },
 

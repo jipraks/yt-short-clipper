@@ -93,6 +93,22 @@ pub fn save_cookies(app: tauri::AppHandle, content: String) -> Result<CookiesSta
     fs::create_dir_all(&cookies_dir).map_err(|e| format!("Failed to create app data directory: {e}"))?;
 
     let cookies_path = cookies_dir.join("cookies.txt");
+
+    // Check before writing: a wrong file (another site's cookies, a logged-out
+    // export) must not overwrite cookies that still work.
+    if find_auth_cookies(&content).is_empty() {
+        return Ok(CookiesStatus {
+            exists: cookies_path.exists(),
+            valid: false,
+            path: cookies_path.to_string_lossy().to_string(),
+            found_cookies: vec![],
+            error: Some(
+                "Invalid cookies.txt - missing YouTube authentication cookies. Please export fresh cookies while logged into YouTube."
+                    .to_string(),
+            ),
+        });
+    }
+
     fs::write(&cookies_path, content).map_err(|e| format!("Failed to save cookies.txt: {e}"))?;
 
     read_cookies_status_for_path(cookies_path)

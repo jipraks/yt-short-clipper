@@ -16,6 +16,7 @@ import { ClipDetailPage } from "@/pages/ClipDetailPage";
 import { ReplizSettingsPage } from "@/pages/ReplizSettingsPage";
 import { CreditsPage } from "@/pages/CreditsPage";
 import { LanguagePickerPage } from "@/pages/LanguagePickerPage";
+import { CookiesStepPage } from "@/pages/onboarding/CookiesStepPage";
 import { UpdateDialog } from "@/components/UpdateDialog";
 import { NotificationDialog } from "@/components/NotificationDialog";
 import { checkForUpdate, type LatestVersionResponse } from "@/hooks/versionCheck";
@@ -31,6 +32,7 @@ function App() {
   const loadConfig = useConfigStore((s) => s.load);
   const configLoaded = useConfigStore((s) => s.loaded);
   const language = useConfigStore((s) => s.config.language);
+  const onboardingDone = useConfigStore((s) => s.config.onboardingCompletedAt !== null);
   const initAccount = useAccountStore((s) => s.init);
 
   useEffect(() => {
@@ -55,11 +57,11 @@ function App() {
   // sees the language picker flash past.
   if (!configLoaded) return null;
 
-  // First launch: nothing else is shown until a language is picked.
-  if (language === null) {
+  // First launch: pick a language, then the setup wizard, then the app.
+  if (language === null || !onboardingDone) {
     return (
       <>
-        <LanguagePickerPage />
+        {language === null ? <LanguagePickerPage /> : <CookiesStepPage />}
         <Toaster position="bottom-right" richColors />
       </>
     );
