@@ -10,8 +10,14 @@
     "windows": [
       {
         "title": "YT Short Clipper v2",
-        "width": 960,
-        "height": 680,
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
+        "maximized": true,
+        "theme": "Dark",
+        "backgroundColor": "#0A0A0A",
         "resizable": true,
         "decorations": true,
         "transparent": false

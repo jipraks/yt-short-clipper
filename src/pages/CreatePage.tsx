@@ -228,28 +228,35 @@ export function CreatePage() {
   }
 
   return (
-    <div className="space-y-5">
-      {/* URL Input */}
-      <div className="flex gap-2">
-        <Input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="YouTube URL"
-          className="flex-1 h-12 text-base rounded-[var(--radius)] border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-[var(--shadow-sm)]"
-        />
-        <Button
-          variant="outline"
-          onClick={handlePaste}
-          className="h-12 px-4 gap-2 rounded-[var(--radius)] shadow-[var(--shadow-sm)]"
-        >
-          <Clipboard className="w-4 h-4" />
-          Paste
-        </Button>
-      </div>
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px] gap-5 xl:gap-6 items-start">
+      {/* Left: source and settings */}
+      <div className="space-y-5 min-w-0">
+        <div>
+          <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Create clips</h1>
+          <p className="text-sm text-[var(--color-text-muted)] mt-1">
+            Paste a YouTube link, set the options, and the AI finds the moments worth clipping.
+          </p>
+        </div>
 
-      {/* Main content: Clip Parameters + Thumbnail */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Left: Clip Parameters */}
+        {/* URL Input */}
+        <div className="flex gap-2">
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="YouTube URL"
+            className="flex-1 h-12 text-base rounded-[var(--radius)] border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-[var(--shadow-sm)]"
+          />
+          <Button
+            variant="outline"
+            onClick={handlePaste}
+            className="h-12 px-4 gap-2 rounded-[var(--radius)] shadow-[var(--shadow-sm)]"
+          >
+            <Clipboard className="w-4 h-4" />
+            Paste
+          </Button>
+        </div>
+
+        {/* Clip Parameters */}
         <Card>
           <CardHeader>
             <CardTitle>Clip Parameters</CardTitle>
@@ -365,170 +372,172 @@ export function CreatePage() {
           </CardContent>
         </Card>
 
-        {/* Right: Thumbnail Preview */}
-        <Card className="flex items-center justify-center min-h-[220px]">
+        {/* AI Direction (optional) */}
+        <Card className="p-0 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setDirectionOpen((open) => !open)}
+            className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left cursor-pointer hover:bg-[var(--color-bg-hover)] transition-colors"
+          >
+            <span className="flex items-center gap-2.5 min-w-0">
+              <Wand2 className="w-4 h-4 shrink-0 text-[var(--color-accent)]" />
+              <span className="text-base font-semibold text-[var(--color-text-primary)] shrink-0">
+                Direct the AI
+              </span>
+              <span className="text-xs text-[var(--color-text-muted)] shrink-0">(optional)</span>
+              {!directionOpen && trimmedDirection !== "" && (
+                <span className="truncate text-xs text-[var(--color-accent)]">
+                  {trimmedDirection}
+                </span>
+              )}
+            </span>
+            <ChevronDown
+              className={cn(
+                "w-4 h-4 shrink-0 text-[var(--color-text-muted)] transition-transform duration-200",
+                directionOpen && "rotate-180"
+              )}
+            />
+          </button>
+
+          {directionOpen && (
+            <div className="px-5 pb-5 pt-4 space-y-3 border-t border-[var(--color-border-light)]">
+              <p className="text-xs text-[var(--color-text-secondary)]">
+                Leave it empty and the AI picks on its own. Or tell it what to go after — a
+                time range, a recurring topic, or what to stay away from.
+              </p>
+
+              <textarea
+                value={userDirection}
+                onChange={(e) => setUserDirection(e.target.value.slice(0, DIRECTION_MAX))}
+                maxLength={DIRECTION_MAX}
+                placeholder={DIRECTION_PLACEHOLDER}
+                className="w-full min-h-[110px] px-3 py-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-border-focus)] resize-y"
+              />
+
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setUserDirection("")}
+                  disabled={userDirection === ""}
+                  className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Clear
+                </button>
+                <span className="text-xs text-[var(--color-text-muted)] tabular-nums">
+                  {userDirection.length}/{DIRECTION_MAX}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowExamples((show) => !show)}
+                className="flex items-center gap-1 text-xs text-[var(--color-accent)] hover:underline cursor-pointer"
+              >
+                {showExamples ? "Hide examples" : "Show examples"}
+                <ChevronDown
+                  className={cn(
+                    "w-3 h-3 transition-transform duration-200",
+                    showExamples && "rotate-180"
+                  )}
+                />
+              </button>
+
+              {showExamples && (
+                <div className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] p-3">
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    Tap one to add it to the box above.
+                  </p>
+                  {DIRECTION_EXAMPLES.map((example) => (
+                    <button
+                      key={example.label}
+                      type="button"
+                      onClick={() => addExample(example.text)}
+                      className="w-full text-left px-3 py-2 rounded-[var(--radius-sm)] border border-[var(--color-border-light)] bg-[var(--color-bg-primary)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-light)] transition-colors cursor-pointer"
+                    >
+                      <span className="block text-[11px] text-[var(--color-text-muted)]">
+                        {example.label}
+                      </span>
+                      <span className="block mt-0.5 text-xs text-[var(--color-text-primary)]">
+                        “{example.text}”
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Right: preview, cookies, and the start button. Sticks while the left scrolls. */}
+      <aside className="space-y-4 lg:sticky lg:top-6">
+        <Card className="p-0 overflow-hidden aspect-video flex items-center justify-center">
           {thumbnailUrl ? (
             <img
               src={thumbnailUrl}
               alt="Video thumbnail"
-              className="w-full h-full object-cover rounded-[var(--radius-sm)]"
+              className="w-full h-full object-cover"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = "none";
               }}
             />
           ) : (
             <div className="flex flex-col items-center gap-3 text-[var(--color-text-muted)]">
-              <CirclePlay className="w-12 h-12 opacity-40" />
+              <CirclePlay className="w-10 h-10 opacity-40" />
               <span className="text-sm">Video thumbnail will appear here</span>
             </div>
           )}
         </Card>
-      </div>
 
-      {/* AI Direction (optional) */}
-      <Card className="p-0 overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setDirectionOpen((open) => !open)}
-          className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left cursor-pointer hover:bg-[var(--color-bg-hover)] transition-colors"
+        {/* Cookies Status */}
+        <div
+          className={`flex items-center justify-between p-3 rounded-[var(--radius-sm)] border cursor-pointer transition-all duration-200 ${
+            cookiesValid
+              ? "bg-[var(--color-success-bg)] border-[var(--color-success)]/30 text-[var(--color-success)]"
+              : "bg-[var(--color-warning-bg)] border-[var(--color-warning)]/30 text-[var(--color-warning)]"
+          }`}
+          onClick={() => setShowCookiesDialog(true)}
         >
-          <span className="flex items-center gap-2.5 min-w-0">
-            <Wand2 className="w-4 h-4 shrink-0 text-[var(--color-accent)]" />
-            <span className="text-base font-semibold text-[var(--color-text-primary)] shrink-0">
-              Direct the AI
-            </span>
-            <span className="text-xs text-[var(--color-text-muted)] shrink-0">(optional)</span>
-            {!directionOpen && trimmedDirection !== "" && (
-              <span className="truncate text-xs text-[var(--color-accent)]">
-                {trimmedDirection}
-              </span>
-            )}
-          </span>
-          <ChevronDown
-            className={cn(
-              "w-4 h-4 shrink-0 text-[var(--color-text-muted)] transition-transform duration-200",
-              directionOpen && "rotate-180"
-            )}
-          />
-        </button>
-
-        {directionOpen && (
-          <div className="px-5 pb-5 pt-4 space-y-3 border-t border-[var(--color-border-light)]">
-            <p className="text-xs text-[var(--color-text-secondary)]">
-              Leave it empty and the AI picks on its own. Or tell it what to go after — a
-              time range, a recurring topic, or what to stay away from.
-            </p>
-
-            <textarea
-              value={userDirection}
-              onChange={(e) => setUserDirection(e.target.value.slice(0, DIRECTION_MAX))}
-              maxLength={DIRECTION_MAX}
-              placeholder={DIRECTION_PLACEHOLDER}
-              className="w-full min-h-[110px] px-3 py-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-border-focus)] resize-y"
-            />
-
-            <div className="flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setUserDirection("")}
-                disabled={userDirection === ""}
-                className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              >
-                Clear
-              </button>
-              <span className="text-xs text-[var(--color-text-muted)] tabular-nums">
-                {userDirection.length}/{DIRECTION_MAX}
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowExamples((show) => !show)}
-              className="flex items-center gap-1 text-xs text-[var(--color-accent)] hover:underline cursor-pointer"
-            >
-              {showExamples ? "Hide examples" : "Show examples"}
-              <ChevronDown
-                className={cn(
-                  "w-3 h-3 transition-transform duration-200",
-                  showExamples && "rotate-180"
-                )}
-              />
-            </button>
-
-            {showExamples && (
-              <div className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] p-3">
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  Tap one to add it to the box above.
-                </p>
-                {DIRECTION_EXAMPLES.map((example) => (
-                  <button
-                    key={example.label}
-                    type="button"
-                    onClick={() => addExample(example.text)}
-                    className="w-full text-left px-3 py-2 rounded-[var(--radius-sm)] border border-[var(--color-border-light)] bg-[var(--color-bg-primary)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-light)] transition-colors cursor-pointer"
-                  >
-                    <span className="block text-[11px] text-[var(--color-text-muted)]">
-                      {example.label}
-                    </span>
-                    <span className="block mt-0.5 text-xs text-[var(--color-text-primary)]">
-                      “{example.text}”
-                    </span>
-                  </button>
-                ))}
-              </div>
+          <div className="flex items-center gap-2 text-sm font-medium">
+            {cookiesValid ? (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>YouTube cookies loaded</span>
+              </>
+            ) : (
+              <>
+                <Cookie className="w-4 h-4" />
+                <span>Upload YouTube cookies to continue</span>
+              </>
             )}
           </div>
-        )}
-      </Card>
-
-      {/* Cookies Status */}
-      <div
-        className={`flex items-center justify-between p-3 rounded-[var(--radius-sm)] border cursor-pointer transition-all duration-200 ${
-          cookiesValid
-            ? "bg-[var(--color-success-bg)] border-[var(--color-success)]/30 text-[var(--color-success)]"
-            : "bg-[var(--color-warning-bg)] border-[var(--color-warning)]/30 text-[var(--color-warning)]"
-        }`}
-        onClick={() => setShowCookiesDialog(true)}
-      >
-        <div className="flex items-center gap-2 text-sm font-medium">
-          {cookiesValid ? (
-            <>
-              <CheckCircle2 className="w-4 h-4" />
-              <span>YouTube cookies loaded</span>
-            </>
-          ) : (
-            <>
-              <Cookie className="w-4 h-4" />
-              <span>Upload YouTube cookies to continue</span>
-            </>
-          )}
+          <span className="text-xs underline">
+            {cookiesValid ? "Change" : "Upload"}
+          </span>
         </div>
-        <span className="text-xs underline">
-          {cookiesValid ? "Change" : "Upload"}
-        </span>
-      </div>
 
-      {/* Help link */}
-      {!cookiesValid && (
-        <button
-          onClick={() => openUrl("https://github.com/jipraks/yt-short-clipper#youtube-cookies")}
-          className="flex items-center gap-1 text-xs text-[var(--color-accent)] hover:underline"
+        {/* Help link */}
+        {!cookiesValid && (
+          <button
+            onClick={() => openUrl("https://github.com/jipraks/yt-short-clipper#youtube-cookies")}
+            className="flex items-center gap-1 text-xs text-[var(--color-accent)] hover:underline"
+          >
+            <ExternalLink className="w-3 h-3" />
+            Need help? View cookies setup guide
+          </button>
+        )}
+
+        {/* CTA Button */}
+        <Button
+          size="lg"
+          disabled={!isValid}
+          onClick={handleStart}
+          className="w-full h-14 text-base font-semibold rounded-[var(--radius)] shadow-[var(--shadow)] gap-2"
         >
-          <ExternalLink className="w-3 h-3" />
-          Need help? View cookies setup guide
-        </button>
-      )}
-
-      {/* CTA Button */}
-      <Button
-        size="lg"
-        disabled={!isValid}
-        onClick={handleStart}
-        className="w-full h-14 text-base font-semibold rounded-[var(--radius)] shadow-[var(--shadow)] gap-2"
-      >
-        <Play className="w-5 h-5" />
-        Find Highlights →
-      </Button>
+          <Play className="w-5 h-5" />
+          Find Highlights →
+        </Button>
+      </aside>
     </div>
   );
 }
