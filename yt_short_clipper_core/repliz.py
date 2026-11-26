@@ -73,11 +73,15 @@ def _upload_video_to_storage(video_path: str, log: LogFn) -> str:
 
     # Step 2: Upload to S3
     log("Uploading to cloud storage...")
+    # Send only the headers the URL was signed with (content-type and host).
+    # Any extra x-amz-* header, such as an ACL, breaks the signature and R2
+    # answers 403 SignatureDoesNotMatch. The bucket is public through its own
+    # domain, so no per-object ACL is needed.
     with open(video_path, "rb") as f:
         upload_response = requests.put(
             presigned_url,
             data=f,
-            headers={"Content-Type": "video/mp4", "x-amz-acl": "public-read"},
+            headers={"Content-Type": "video/mp4"},
             timeout=1800,  # 30 minutes for large files
         )
 
