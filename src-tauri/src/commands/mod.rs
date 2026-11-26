@@ -1,5 +1,6 @@
 pub mod account;
 pub mod analytics;
+pub mod config_store;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -63,28 +64,12 @@ pub fn greet(name: &str) -> String {
 
 #[tauri::command]
 pub fn load_app_config(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let config_path = app_config_path(&app)?;
-    if !config_path.exists() {
-        return Ok(default_app_config());
-    }
-
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config.json: {e}"))?;
-    serde_json::from_str(&content).map_err(|e| format!("Failed to parse config.json: {e}"))
+    config_store::load(&cookies_dir(&app)?, default_app_config(), &config_store::OsSecretStore)
 }
 
 #[tauri::command]
 pub fn save_app_config(app: tauri::AppHandle, config: serde_json::Value) -> Result<serde_json::Value, String> {
-    let config_path = app_config_path(&app)?;
-    if let Some(parent) = config_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Failed to create app data directory: {e}"))?;
-    }
-
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config: {e}"))?;
-    fs::write(&config_path, content).map_err(|e| format!("Failed to save config.json: {e}"))?;
-
-    Ok(config)
+    config_store::save(&cookies_dir(&app)?, config, &config_store::OsSecretStore)
 }
 
 #[tauri::command]
@@ -591,10 +576,6 @@ fn base64_encode(data: &[u8]) -> String {
         }
     }
     out
-}
-
-fn app_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(cookies_dir(app)?.join("config.json"))
 }
 
 /// Mirrors `DEFAULT_CONFIG` in `src/hooks/appConfig.ts`.
