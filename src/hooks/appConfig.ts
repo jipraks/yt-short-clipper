@@ -112,6 +112,8 @@ export interface AppConfig {
   installationId: string;
   /** UI language the user picked on first launch; null until they pick one. */
   language: AppLanguage | null;
+  /** When the user agreed to the Terms and Privacy Policy on first launch. */
+  termsAcceptedAt: string | null;
   /** When the first-launch setup wizard was finished or skipped; null until then. */
   onboardingCompletedAt: string | null;
 }
@@ -175,6 +177,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   installationId: "",
   language: null,
+  termsAcceptedAt: null,
   onboardingCompletedAt: null,
 };
 
@@ -330,6 +333,8 @@ function mergeConfig(config: Partial<AppConfig> | undefined): AppConfig {
       config?.language === "id" || config?.language === "en"
         ? config.language
         : DEFAULT_CONFIG.language,
+    termsAcceptedAt:
+      typeof config?.termsAcceptedAt === "string" ? config.termsAcceptedAt : DEFAULT_CONFIG.termsAcceptedAt,
     onboardingCompletedAt:
       typeof config?.onboardingCompletedAt === "string"
         ? config.onboardingCompletedAt

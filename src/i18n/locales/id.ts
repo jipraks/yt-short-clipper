@@ -21,6 +21,12 @@ export const id: Messages = {
     confirm: "Pakai Bahasa Indonesia",
     saving: "Menyimpan…",
     saveFailed: "Bahasa belum tersimpan. Coba lagi.",
+    agreeBefore: "Saya setuju dengan ",
+    terms: "Syarat dan Ketentuan",
+    agreeBetween: " serta ",
+    privacy: "Kebijakan Privasi",
+    agreeAfter: " Cuplik.",
+    agreeRequired: "Centang kotak di atas untuk lanjut.",
   },
   onboardingCookies: {
     title: "Sambungkan YouTube ke Cuplik",

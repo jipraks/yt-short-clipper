@@ -27,6 +27,12 @@ export const en = {
     confirm: "Use English",
     saving: "Saving…",
     saveFailed: "Your language could not be saved. Try again.",
+    agreeBefore: "I agree to Cuplik's ",
+    terms: "Terms and Conditions",
+    agreeBetween: " and ",
+    privacy: "Privacy Policy",
+    agreeAfter: ".",
+    agreeRequired: "Tick the box above to continue.",
   },
   onboardingCookies: {
     title: "Connect YouTube to Cuplik",

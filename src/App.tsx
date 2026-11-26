@@ -32,6 +32,7 @@ function App() {
   const loadConfig = useConfigStore((s) => s.load);
   const configLoaded = useConfigStore((s) => s.loaded);
   const language = useConfigStore((s) => s.config.language);
+  const termsAccepted = useConfigStore((s) => s.config.termsAcceptedAt !== null);
   const onboardingDone = useConfigStore((s) => s.config.onboardingCompletedAt !== null);
   const initAccount = useAccountStore((s) => s.init);
 
@@ -58,10 +59,13 @@ function App() {
   if (!configLoaded) return null;
 
   // First launch: pick a language, then the setup wizard, then the app.
-  if (language === null || !onboardingDone) {
+  // A user who picked a language before the Terms existed sees the picker once
+  // more, so everyone has agreed before using the app.
+  const needsPicker = language === null || !termsAccepted;
+  if (needsPicker || !onboardingDone) {
     return (
       <>
-        {language === null ? <LanguagePickerPage /> : <OnboardingFlow />}
+        {needsPicker ? <LanguagePickerPage /> : <OnboardingFlow />}
         <Toaster position="bottom-right" richColors />
       </>
     );

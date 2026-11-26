@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { open as openUrl } from "@tauri-apps/plugin-shell";
 import i18n from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Wordmark } from "@/components/brand/Wordmark";
@@ -6,6 +7,8 @@ import { useConfigStore } from "@/stores/configStore";
 import type { AppLanguage } from "@/hooks/appConfig";
 
 const OPTIONS: AppLanguage[] = ["id", "en"];
+const TERMS_URL = "https://cuplik.jipraks.id/terms-condition";
+const PRIVACY_URL = "https://cuplik.jipraks.id/privacy-policy";
 
 /**
  * First-launch screen. Each option describes itself in its own language, and
@@ -18,10 +21,12 @@ export function LanguagePickerPage() {
     i18n.language === "id" ? "id" : "en",
   );
   const [state, setState] = useState<"idle" | "saving" | "error">("idle");
+  const [agreed, setAgreed] = useState(false);
 
   const t = i18n.getFixedT(selected);
 
   const confirm = async () => {
+    if (!agreed) return;
     setState("saving");
     try {
       await setLanguage(selected);
@@ -96,6 +101,28 @@ export function LanguagePickerPage() {
             </div>
           </fieldset>
 
+          <div lang={selected} className="mt-6">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={agreed}
+                disabled={state === "saving"}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-[var(--color-accent-fill)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] focus-visible:ring-offset-2"
+              />
+              <span className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+                {t("languagePicker.agreeBefore")}
+                <LegalLink url={TERMS_URL}>{t("languagePicker.terms")}</LegalLink>
+                {t("languagePicker.agreeBetween")}
+                <LegalLink url={PRIVACY_URL}>{t("languagePicker.privacy")}</LegalLink>
+                {t("languagePicker.agreeAfter")}
+              </span>
+            </label>
+            {!agreed && (
+              <p className="mt-2 ml-8 text-xs text-[var(--color-text-muted)]">{t("languagePicker.agreeRequired")}</p>
+            )}
+          </div>
+
           {state === "error" && (
             <p role="alert" lang={selected} className="mt-4 text-sm text-[var(--color-error)]">
               {t("languagePicker.saveFailed")}
@@ -106,7 +133,7 @@ export function LanguagePickerPage() {
             type="submit"
             size="lg"
             lang={selected}
-            disabled={state === "saving"}
+            disabled={state === "saving" || !agreed}
             className="mt-6 w-full h-12 text-base font-semibold"
           >
             {state === "saving" ? t("languagePicker.saving") : t("languagePicker.confirm")}
@@ -114,5 +141,25 @@ export function LanguagePickerPage() {
         </form>
       </div>
     </main>
+  );
+}
+
+/**
+ * Opens a legal page in the browser. A button inside the checkbox label, so
+ * clicking it opens the page without ticking the box.
+ */
+function LegalLink({ url, children }: { url: string; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openUrl(url).catch(console.error);
+      }}
+      className="font-medium text-[var(--color-accent)] underline underline-offset-4 hover:no-underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+    >
+      {children}
+    </button>
   );
 }
