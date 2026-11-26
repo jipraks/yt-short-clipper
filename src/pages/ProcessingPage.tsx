@@ -1,57 +1,37 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Loader2, Circle, AlertCircle, Copy, Check } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { useProcessingStore, type Step } from "@/stores/processingStore";
+import { useProcessingStore, type Step, type StepId } from "@/stores/processingStore";
 import { useSessionStore } from "@/stores/sessionStore";
 import { findHighlights } from "@/hooks/highlights";
-import { formatLogTime } from "@/utils/format";
-import { toast } from "sonner";
-
-function levelForMessage(message: string): "info" | "warn" | "error" | "success" {
-  const m = message.toLowerCase();
-  if (m.startsWith("ok ") || m.includes("found ") || m.includes("complete")) return "success";
-  if (m.startsWith("skip") || m.includes("warn")) return "warn";
-  if (m.includes("error") || m.includes("failed")) return "error";
-  return "info";
-}
-
-function StepIcon({ status }: { status: Step["status"] }) {
-  switch (status) {
-    case "done":
-      return <CheckCircle2 className="w-5 h-5 text-[var(--color-success)]" />;
-    case "running":
-      return <Loader2 className="w-5 h-5 text-[var(--color-accent)] animate-spin" />;
-    case "error":
-      return <AlertCircle className="w-5 h-5 text-[var(--color-error)]" />;
-    default:
-      return <Circle className="w-5 h-5 text-[var(--color-text-muted)]" />;
-  }
-}
+import { TechnicalLog, clock, levelForMessage, shortError } from "@/components/process/TechnicalLog";
+import { extractVideoId, fetchVideoInfo, getThumbnailUrl, type VideoInfo } from "@/utils/youtube";
+import { cn } from "@/lib/utils";
 
 export function ProcessingPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
-  const { isProcessing, steps, logLines, error, request, updateStep, appendLog, setError, finish } =
+  const { isProcessing, steps, logLines, error, request, start, updateStep, appendLog, setError, finish } =
     useProcessingStore();
   const { setSession } = useSessionStore();
-  const logEndRef = useRef<HTMLDivElement>(null);
   const startedRef = useRef(false);
-  const [copied, setCopied] = useState(false);
+  const [startedAt, setStartedAt] = useState(() => Date.now());
+  const [elapsed, setElapsed] = useState(0);
+  const [showLog, setShowLog] = useState(false);
+  const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
 
-  const copyLog = useCallback(async () => {
-    const text = logLines
-      .map((l) => `[${formatLogTime(l.ts)}] ${l.level.toUpperCase()}: ${l.message}`)
-      .join("\n");
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      toast.success("Log copied to clipboard");
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error("Failed to copy log");
-    }
-  }, [logLines]);
+  const videoId = request ? extractVideoId(request.url) : null;
+
+  useEffect(() => {
+    if (!videoId) return;
+    const controller = new AbortController();
+    fetchVideoInfo(videoId, controller.signal).then((info) => {
+      if (!controller.signal.aborted) setVideoInfo(info);
+    });
+    return () => controller.abort();
+  }, [videoId]);
 
   const run = useCallback(async () => {
     if (!request) {
@@ -72,27 +52,27 @@ export function ProcessingPage() {
         outputLanguage: request.outputLanguage,
         onLog: (message) => {
           appendLog({ level: levelForMessage(message), message, ts: Date.now() });
+          // The sidecar announces each phase in its log; move the stepper on those.
           const m = message.toLowerCase();
           if (m.includes("finding highlights")) {
             updateStep(0, "done");
             updateStep(1, "running");
+          } else if (m.includes("extracting transcript text")) {
+            updateStep(1, "done");
+            updateStep(2, "running");
           }
         },
       });
 
       finish();
       setSession(session);
-      appendLog({
-        level: "success",
-        message: `Found ${session.highlights.length} highlights`,
-        ts: Date.now(),
-      });
-      setTimeout(() => navigate("/highlights"), 600);
+      appendLog({ level: "success", message: `Found ${session.highlights.length} highlights`, ts: Date.now() });
+      setTimeout(() => navigate("/highlights"), 700);
     } catch (err) {
-      const detail =
-        err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
+      const detail = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
       console.error("find_highlights failed", err);
       setError(detail);
+      setShowLog(true);
       appendLog({ level: "error", message: detail, ts: Date.now() });
     }
   }, [request, navigate, updateStep, appendLog, finish, setSession, setError]);
@@ -100,119 +80,163 @@ export function ProcessingPage() {
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
-    run();
+    void run();
   }, [run]);
 
+  // Running clock, stopped once the run ends either way.
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logLines]);
+    if (!isProcessing) return;
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [isProcessing, startedAt]);
+
+  const retry = () => {
+    if (!request) return;
+    start(request);
+    setStartedAt(Date.now());
+    setElapsed(0);
+    setShowLog(false);
+    // start() resets the store; run again on the next tick so it sees the reset.
+    setTimeout(() => void run(), 0);
+  };
+
+  const current = steps.findIndex((s) => s.status === "running" || s.status === "error");
+  const focusStep: Step | undefined = steps[current >= 0 ? current : steps.length - 1];
+  const done = !isProcessing && !error;
+  const lastLine = logLines.length ? logLines[logLines.length - 1].message : "";
+
+  const stepBody = (id: StepId) =>
+    id === "ai"
+      ? `${t("processing.steps.ai.body", { count: request?.numClips ?? 0 })}${request?.userDirection ? ` ${t("processing.steps.ai.direction")}` : ""}`
+      : t(`processing.steps.${id}.body`);
 
   return (
-    <div className="space-y-5">
-      <Button
-        variant="ghost"
-        onClick={() => navigate("/")}
-        className="gap-2 text-[var(--color-text-secondary)]"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back
-      </Button>
-
-      <div>
-        <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">
-          {error
-            ? "Something went wrong"
-            : isProcessing
-              ? "Finding highlights..."
-              : "Highlights ready"}
-        </h2>
-        <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          {error
-            ? "Review the log below and try again."
-            : "Downloading subtitle and analyzing the transcript with AI."}
-        </p>
-      </div>
-
-      {/* Steps */}
-      <Card className="p-4">
-        <div className="space-y-2.5">
-          {steps.map((step, i) => (
-            <div key={i} className="flex items-center gap-3">
-              <StepIcon status={step.status} />
-              <span
-                className={`text-sm ${
-                  step.status === "running"
-                    ? "text-[var(--color-accent)] font-medium"
-                    : step.status === "done"
-                      ? "text-[var(--color-text-primary)]"
-                      : step.status === "error"
-                        ? "text-[var(--color-error)]"
-                        : "text-[var(--color-text-muted)]"
-                }`}
-              >
-                {step.label}
-              </span>
-            </div>
-          ))}
+    <div className="mx-auto max-w-[760px] py-4">
+      {/* Which video this is about */}
+      {videoId && (
+        <div className="flex items-center gap-4">
+          <img
+            src={getThumbnailUrl(videoId, "mq")}
+            alt=""
+            className="aspect-video w-28 shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-border)] object-cover"
+          />
+          <div className="min-w-0">
+            <p className="text-sm text-[var(--color-text-muted)]">
+              {error ? t("processing.errorTitle") : done ? t("processing.doneTitle") : t("processing.title")}
+            </p>
+            <p className="mt-0.5 line-clamp-2 text-lg font-semibold text-[var(--color-text-primary)] leading-snug">
+              {videoInfo?.title ?? request?.url}
+            </p>
+          </div>
         </div>
-      </Card>
-
-      {/* Log console */}
-      <Card className="p-0 overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border-light)] bg-[var(--color-bg-sidebar)]">
-          <span className="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">
-            Log Output
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={copyLog}
-            disabled={logLines.length === 0}
-            className="h-7 gap-1.5 text-xs"
-          >
-            {copied ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-[var(--color-success)]" />
-                Copied
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5" />
-                Copy
-              </>
-            )}
-          </Button>
-        </div>
-        <div className="h-[260px] overflow-y-auto p-3 font-mono text-xs space-y-1 bg-[var(--color-bg-primary)]">
-          {logLines.map((line, i) => (
-            <div key={i} className="flex gap-2">
-              <span className="text-[var(--color-text-muted)] shrink-0">
-                [{formatLogTime(line.ts)}]
-              </span>
-              <span
-                className={
-                  line.level === "error"
-                    ? "text-[var(--color-error)]"
-                    : line.level === "success"
-                      ? "text-[var(--color-success)]"
-                      : line.level === "warn"
-                        ? "text-[var(--color-warning)]"
-                        : "text-[var(--color-text-secondary)]"
-                }
-              >
-                {line.message}
-              </span>
-            </div>
-          ))}
-          <div ref={logEndRef} />
-        </div>
-      </Card>
-
-      {error && (
-        <Button onClick={() => navigate("/")} variant="outline" className="w-full">
-          Back to Create
-        </Button>
       )}
+
+      {/* The steps, left to right */}
+      <ol className="mt-8 grid grid-cols-3 gap-2">
+        {steps.map((step, i) => (
+          <StepPill key={step.id} step={step} n={i + 1} last={i === steps.length - 1} label={t(`processing.steps.${step.id}.title`)} />
+        ))}
+      </ol>
+
+      {/* What is happening right now */}
+      <section
+        aria-live="polite"
+        className={cn(
+          "mt-6 rounded-[var(--radius-lg)] border p-5",
+          error ? "border-[var(--color-error)]/40 bg-[var(--color-error-bg)]" : "border-[var(--color-border)] bg-[var(--color-bg-primary)]",
+        )}
+      >
+        {error ? (
+          <>
+            <p className="text-base font-semibold text-[var(--color-text-primary)]">{t("processing.errorTitle")}</p>
+            <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{t("processing.errorBody")}</p>
+            <p className="mt-3 whitespace-pre-line break-words text-sm text-[var(--color-error)]">{shortError(error)}</p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Button onClick={retry} className="h-11 px-5">
+                {t("processing.retry")}
+              </Button>
+              <Button variant="outline" onClick={() => navigate("/")} className="h-11 px-5">
+                {t("processing.backToCreate")}
+              </Button>
+            </div>
+          </>
+        ) : focusStep ? (
+          <>
+            <div className="flex items-baseline justify-between gap-4">
+              <p className="text-xs font-medium text-[var(--color-text-muted)]">
+                {t("processing.stepOf", { n: steps.indexOf(focusStep) + 1, total: steps.length })}
+              </p>
+              <p className="text-xs tabular-nums text-[var(--color-text-muted)]">
+                {t("processing.elapsed", { time: clock(elapsed) })}
+              </p>
+            </div>
+            <p className="mt-1 text-xl font-bold text-[var(--color-text-primary)]">
+              {done ? t("processing.doneTitle") : t(`processing.steps.${focusStep.id}.title`)}
+            </p>
+            {!done && (
+              <p className="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">{stepBody(focusStep.id)}</p>
+            )}
+            {!done && lastLine && (
+              <p className="mt-4 truncate text-xs text-[var(--color-text-muted)]">
+                {t("processing.lastActivity")}: <span className="font-mono">{lastLine}</span>
+              </p>
+            )}
+            {isProcessing && <p className="mt-4 text-xs text-[var(--color-text-muted)]">{t("processing.keepOpen")}</p>}
+          </>
+        ) : null}
+      </section>
+
+      <TechnicalLog lines={logLines} open={showLog} onToggle={() => setShowLog((v) => !v)} />
     </div>
+  );
+}
+
+/** One step in the row: number or state, title, and a line to the next. */
+function StepPill({ step, n, last, label }: { step: Step; n: number; last: boolean; label: string }) {
+  const active = step.status === "running";
+  return (
+    <li className="relative flex flex-col items-center text-center" aria-current={active ? "step" : undefined}>
+      {!last && (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute left-[calc(50%+22px)] right-[calc(-50%+22px)] top-[17px] h-0.5 rounded-full",
+            step.status === "done" ? "bg-[var(--color-success)]" : "bg-[var(--color-border)]",
+          )}
+        />
+      )}
+      <span
+        className={cn(
+          "relative flex h-9 w-9 items-center justify-center rounded-full border-2 text-sm font-bold tabular-nums",
+          step.status === "done" && "border-[var(--color-success)] bg-[var(--color-success)] text-[var(--color-bg-secondary)]",
+          step.status === "running" && "border-[var(--color-accent)] text-[var(--color-accent)]",
+          step.status === "error" && "border-[var(--color-error)] bg-[var(--color-error)] text-[var(--color-bg-secondary)]",
+          step.status === "pending" && "border-[var(--color-border)] text-[var(--color-text-muted)]",
+        )}
+      >
+        {step.status === "done" ? (
+          <Check aria-hidden className="h-4 w-4" strokeWidth={3} />
+        ) : step.status === "error" ? (
+          <X aria-hidden className="h-4 w-4" strokeWidth={3} />
+        ) : (
+          n
+        )}
+        {active && (
+          // A ring that turns while this step runs; still for reduced motion.
+          <span
+            aria-hidden
+            className="absolute -inset-1 rounded-full border-2 border-transparent border-t-[var(--color-accent)] motion-safe:animate-spin [animation-duration:1.2s]"
+          />
+        )}
+      </span>
+      <span
+        className={cn(
+          "mt-2 text-sm",
+          active ? "font-semibold text-[var(--color-text-primary)]" : step.status === "done" ? "text-[var(--color-text-secondary)]" : step.status === "error" ? "text-[var(--color-error)]" : "text-[var(--color-text-muted)]",
+        )}
+      >
+        {label}
+      </span>
+    </li>
   );
 }

@@ -1,5 +1,5 @@
 import { Outlet, useLocation } from "react-router-dom";
-import { Sidebar } from "./Sidebar";
+import { TopNav } from "./TopNav";
 
 /** Routes that lay themselves out edge to edge, like the highlight editor. */
 const FULL_BLEED_ROUTES = new Set(["/highlights"]);
@@ -9,15 +9,16 @@ export function AppLayout() {
   const fullBleed = FULL_BLEED_ROUTES.has(pathname);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[var(--color-bg-secondary)]">
-      <Sidebar />
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--color-bg-secondary)]">
+      {/* Outside the scrolling area, so it stays in view on every page. */}
+      <TopNav />
       {fullBleed ? (
-        <main className="flex-1 min-w-0 overflow-hidden">
+        <main className="min-h-0 flex-1 overflow-hidden">
           <Outlet />
         </main>
       ) : (
-        <main className="flex-1 overflow-y-auto">
-          <div className="max-w-[900px] xl:max-w-[1080px] 2xl:max-w-[1240px] mx-auto p-6 xl:px-10 xl:py-8">
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-[900px] p-6 xl:max-w-[1080px] xl:px-10 xl:py-8 2xl:max-w-[1240px]">
             <Outlet />
           </div>
         </main>

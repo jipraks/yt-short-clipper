@@ -16,6 +16,7 @@ pub fn run() {
             commands::detect_gpu,
             commands::find_highlights,
             commands::list_sessions,
+            commands::list_clips,
             commands::load_session,
             commands::delete_session,
             commands::save_session_highlights,

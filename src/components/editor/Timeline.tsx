@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { formatRuler } from "@/lib/timecode";
 import type { TimedToken } from "@/hooks/transcript";
 import { useFilmstrip } from "./useFilmstrip";
@@ -236,10 +237,11 @@ function Handle({
   onPointerUp: (e: React.PointerEvent) => void;
   onPointerCancel: (e: React.PointerEvent) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       role="slider"
-      aria-label={side === "left" ? "Clip start" : "Clip end"}
+      aria-label={side === "left" ? t("editor.timeline.handleStart") : t("editor.timeline.handleEnd")}
       className={`absolute inset-y-0 w-3 flex items-center justify-center bg-white cursor-ew-resize ${
         side === "left" ? "-left-[2px] rounded-l-[var(--radius-sm)]" : "-right-[2px] rounded-r-[var(--radius-sm)]"
       }`}

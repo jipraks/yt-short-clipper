@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   CheckSquare,
@@ -40,9 +41,9 @@ const ZOOM_LEVELS = [0.35, 0.7, 1.5, 3, 6];
 const DEFAULT_ZOOM = 1;
 
 function viralityStyle(score: number) {
-  if (score >= 7) return { color: "var(--color-success)", bg: "var(--color-success-bg)", Icon: Flame };
-  if (score >= 5) return { color: "var(--color-warning)", bg: "var(--color-warning-bg)", Icon: Zap };
-  return { color: "var(--color-error)", bg: "var(--color-error-bg)", Icon: Sparkle };
+  if (score >= 7) return { color: "var(--color-success)", Icon: Flame };
+  if (score >= 5) return { color: "var(--color-warning)", Icon: Zap };
+  return { color: "var(--color-text-muted)", Icon: Sparkle };
 }
 
 function rangeOf(h: Highlight) {
@@ -61,6 +62,7 @@ function clipPathFor(sessionDir: string, index: number) {
 }
 
 export function HighlightSelectionPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const {
     session,
@@ -96,6 +98,20 @@ export function HighlightSelectionPage() {
 
   if (!session) return null;
 
+  // The sidecar never saves a session without highlights, but a damaged or
+  // hand-edited session file could; show that instead of crashing the editor.
+  if (session.highlights.length === 0) {
+    return (
+      <div className="mx-auto max-w-md py-16 text-center">
+        <p className="text-base font-semibold text-[var(--color-text-primary)]">{t("highlightsEmpty.title")}</p>
+        <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{t("highlightsEmpty.body")}</p>
+        <Button variant="outline" onClick={() => navigate(origin === "library" ? "/library" : "/")} className="mt-6 h-11 px-5">
+          {t("highlightsEmpty.back")}
+        </Button>
+      </div>
+    );
+  }
+
   const highlights = session.highlights;
   const processedSet = new Set(session.processed_highlights ?? []);
   const selectedCount = [...selectedIndices].filter((i) => !processedSet.has(i)).length;
@@ -104,35 +120,35 @@ export function HighlightSelectionPage() {
 
   return (
     <div className="h-full flex flex-col gap-3 p-4 min-h-0">
-      {/* Header */}
       <header className="flex items-center gap-3 shrink-0">
         <Button
           variant="ghost"
           size="sm"
           onClick={() => navigate(backTo)}
-          className="gap-1.5 text-[var(--color-text-secondary)] shrink-0"
+          aria-label={t("editor.backLabel")}
+          className="h-9 gap-1.5 text-[var(--color-text-secondary)] shrink-0"
         >
-          <ArrowLeft className="w-4 h-4" />
-          Back
+          <ArrowLeft aria-hidden className="w-4 h-4" />
+          {origin === "library" ? t("editor.backToProjects") : t("editor.backToCreate")}
         </Button>
-        <span className="text-[var(--color-text-muted)]">/</span>
+        <span aria-hidden className="text-[var(--color-text-muted)]">/</span>
         <h1 className="flex-1 min-w-0 truncate text-sm font-semibold text-[var(--color-text-primary)]">
-          {session.video_info.title || "Select Highlights"}
+          {session.video_info.title || t("editor.untitled")}
         </h1>
-        <Button variant="outline" size="sm" onClick={selectAll} className="gap-1.5 shrink-0">
-          <CheckSquare className="w-3.5 h-3.5" /> All
+        <Button variant="ghost" size="sm" onClick={selectAll} className="h-9 shrink-0">
+          {t("editor.selectAll")}
         </Button>
-        <Button variant="outline" size="sm" onClick={deselectAll} className="gap-1.5 shrink-0">
-          <Square className="w-3.5 h-3.5" /> Clear
+        <Button variant="ghost" size="sm" onClick={deselectAll} className="h-9 shrink-0">
+          {t("editor.clearSelection")}
         </Button>
         <Button
           size="sm"
           disabled={selectedCount === 0}
           onClick={() => setShowProcessDialog(true)}
-          className="gap-1.5 shrink-0 rounded-full px-4"
+          className="h-9 gap-1.5 shrink-0 px-4"
         >
-          <Film className="w-4 h-4" />
-          Process {selectedCount} clip{selectedCount === 1 ? "" : "s"}
+          <Film aria-hidden className="w-4 h-4" />
+          {t("editor.render", { count: selectedCount })}
         </Button>
       </header>
 
@@ -144,6 +160,7 @@ export function HighlightSelectionPage() {
         selectedIndices={selectedIndices}
         processedSet={processedSet}
         sessionDir={session.session_dir}
+        projectTitle={session.video_info?.title}
         proxy={proxy}
         retryProxy={() => void ensureProxy(session.url, session.session_dir)}
         tokens={transcript?.tokens ?? []}
@@ -201,6 +218,7 @@ interface EditorProps {
   selectedIndices: Set<number>;
   processedSet: Set<number>;
   sessionDir: string;
+  projectTitle?: string;
   proxy: ReturnType<typeof useProxyStore.getState>["bySession"][string] | undefined;
   retryProxy: () => void;
   tokens: TimedToken[];
@@ -218,6 +236,7 @@ function Editor({
   selectedIndices,
   processedSet,
   sessionDir,
+  projectTitle,
   proxy,
   retryProxy,
   tokens,
@@ -227,6 +246,7 @@ function Editor({
   onTrim,
   onReset,
 }: EditorProps) {
+  const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -264,10 +284,10 @@ function Editor({
     return { start: vs, end: Math.max(ve, vs + 1) };
   }, [anchor, zoom, duration]);
 
-  const seek = useCallback((t: number) => {
+  const seek = useCallback((time: number) => {
     const v = videoRef.current;
-    setCurrentTime(t);
-    if (v && v.readyState >= 1) v.currentTime = t;
+    setCurrentTime(time);
+    if (v && v.readyState >= 1) v.currentTime = time;
   }, []);
 
   // Jump to the clip's start whenever another clip is chosen.
@@ -311,10 +331,10 @@ function Editor({
 
   const nudge = (delta: number) => seek(Math.min(duration, Math.max(0, currentTime + delta)));
 
-  const setEdge = (edge: "start" | "end", t: number) => {
+  const setEdge = (edge: "start" | "end", time: number) => {
     if (locked) return;
-    if (edge === "start") onTrim(activeIndex, Math.max(0, Math.min(t, end - MIN_CLIP_SECONDS)), end);
-    else onTrim(activeIndex, start, Math.min(duration, Math.max(t, start + MIN_CLIP_SECONDS)));
+    if (edge === "start") onTrim(activeIndex, Math.max(0, Math.min(time, end - MIN_CLIP_SECONDS)), end);
+    else onTrim(activeIndex, start, Math.min(duration, Math.max(time, start + MIN_CLIP_SECONDS)));
   };
 
   // Keyboard: Space play, arrows seek, I/O set start/end at the playhead.
@@ -322,6 +342,8 @@ function Editor({
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest("input, textarea, select, [contenteditable=true]")) return;
+      // A dialog on top owns the keyboard: Space must press its buttons.
+      if (document.querySelector("[aria-modal=true]")) return;
       if (e.code === "Space") {
         e.preventDefault();
         togglePlay();
@@ -342,7 +364,7 @@ function Editor({
   });
 
   const currentToken = useMemo(() => {
-    for (const t of tokens) if (t.start <= currentTime && t.end > currentTime) return t;
+    for (const tok of tokens) if (tok.start <= currentTime && tok.end > currentTime) return tok;
     return null;
   }, [tokens, currentTime]);
 
@@ -352,8 +374,8 @@ function Editor({
     const i = tokens.indexOf(currentToken);
     return tokens
       .slice(Math.max(0, i - 3), i + 4)
-      .filter((t) => Math.abs(t.start - currentToken.start) < 2.5)
-      .map((t) => t.text)
+      .filter((tok) => Math.abs(tok.start - currentToken.start) < 2.5)
+      .map((tok) => tok.text)
       .join(" ");
   }, [tokens, currentToken]);
 
@@ -367,11 +389,10 @@ function Editor({
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-3">
       <div className="flex-1 min-h-0 grid grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_300px] gap-3">
-        {/* Clip list */}
         <aside className="min-h-0 flex flex-col rounded-[var(--radius-lg)] bg-[var(--color-bg-primary)] border border-[var(--color-border-light)] overflow-hidden">
-          <div className="px-4 pt-3 pb-2 text-sm font-semibold text-[var(--color-text-primary)]">
-            AI Clips <span className="text-[var(--color-text-muted)] font-normal">· {highlights.length}</span>
-          </div>
+          <h2 className="px-4 pt-3 pb-2 text-sm font-semibold text-[var(--color-text-primary)]">
+            {t("editor.list.title")} <span className="text-[var(--color-text-muted)] font-normal">· {highlights.length}</span>
+          </h2>
           <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-1">
             {highlights.map((h, i) => (
               <ClipRow
@@ -430,6 +451,7 @@ function Editor({
               rangeText={rangeText}
               padding={padding}
               sessionDir={sessionDir}
+              projectTitle={projectTitle}
               onSetStart={() => setEdge("start", currentTime)}
               onSetEnd={() => setEdge("end", currentTime)}
               onNudge={(edge, d) => setEdge(edge, (edge === "start" ? start : end) + d)}
@@ -452,6 +474,7 @@ function Editor({
             rangeText={rangeText}
             padding={padding}
             sessionDir={sessionDir}
+            projectTitle={projectTitle}
             onSetStart={() => setEdge("start", currentTime)}
             onSetEnd={() => setEdge("end", currentTime)}
             onNudge={(edge, d) => setEdge(edge, (edge === "start" ? start : end) + d)}
@@ -470,30 +493,35 @@ function Editor({
             <span className="text-[var(--color-text-primary)]">{formatClock(currentTime)}</span>
             <span className="text-[var(--color-text-muted)]">
               {"  ·  "}
-              {formatClock(start)} – {formatClock(end)} ({(end - start).toFixed(1)}s)
+              {t("editor.transport.rangeSummary", {
+                start: formatClock(start),
+                end: formatClock(end),
+                length: (end - start).toFixed(1),
+              })}
             </span>
           </div>
           <div className="flex items-center gap-1">
-            <IconBtn label="Previous clip" disabled={activeIndex === 0} onClick={() => setActiveIndex(activeIndex - 1)}>
+            <IconBtn label={t("editor.transport.previousClip")} disabled={activeIndex === 0} onClick={() => setActiveIndex(activeIndex - 1)}>
               <SkipBack className="w-4 h-4" />
             </IconBtn>
-            <IconBtn label="Back 5 seconds" onClick={() => nudge(-5)}>
+            <IconBtn label={t("editor.transport.back5")} onClick={() => nudge(-5)}>
               <RotateCcw className="w-4 h-4" />
             </IconBtn>
             <button
               type="button"
-              aria-label={playing ? "Pause" : "Play clip"}
+              aria-label={playing ? t("editor.transport.pause") : t("editor.transport.play")}
+              title={playing ? t("editor.transport.pause") : t("editor.transport.play")}
               disabled={!proxySrc}
               onClick={togglePlay}
-              className="mx-1 w-10 h-10 rounded-full bg-[var(--color-accent-fill)] text-[var(--color-text-on-accent)] flex items-center justify-center hover:bg-[var(--color-accent-hover)] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+              className="mx-1 w-10 h-10 rounded-full bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] flex items-center justify-center hover:opacity-90 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
             >
               {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
             </button>
-            <IconBtn label="Forward 5 seconds" onClick={() => nudge(5)}>
+            <IconBtn label={t("editor.transport.forward5")} onClick={() => nudge(5)}>
               <RotateCw className="w-4 h-4" />
             </IconBtn>
             <IconBtn
-              label="Next clip"
+              label={t("editor.transport.nextClip")}
               disabled={activeIndex >= highlights.length - 1}
               onClick={() => setActiveIndex(activeIndex + 1)}
             >
@@ -501,13 +529,13 @@ function Editor({
             </IconBtn>
           </div>
           <div className="flex items-center justify-end gap-1">
-            <IconBtn label="Zoom out" disabled={zoomIdx >= ZOOM_LEVELS.length - 1} onClick={() => setZoom(ZOOM_LEVELS[zoomIdx + 1])}>
+            <IconBtn label={t("editor.transport.zoomOut")} disabled={zoomIdx >= ZOOM_LEVELS.length - 1} onClick={() => setZoom(ZOOM_LEVELS[zoomIdx + 1])}>
               <ZoomOut className="w-4 h-4" />
             </IconBtn>
-            <IconBtn label="Zoom in" disabled={zoomIdx <= 0} onClick={() => setZoom(ZOOM_LEVELS[zoomIdx - 1])}>
+            <IconBtn label={t("editor.transport.zoomIn")} disabled={zoomIdx <= 0} onClick={() => setZoom(ZOOM_LEVELS[zoomIdx - 1])}>
               <ZoomIn className="w-4 h-4" />
             </IconBtn>
-            <IconBtn label={muted ? "Unmute" : "Mute"} onClick={() => setMuted(!muted)}>
+            <IconBtn label={muted ? t("editor.transport.unmute") : t("editor.transport.mute")} onClick={() => setMuted(!muted)}>
               {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </IconBtn>
           </div>
@@ -523,16 +551,14 @@ function Editor({
           tokens={tokens}
           filmSrc={proxySrc}
           locked={locked}
-          label={`Clip ${activeIndex + 1}`}
+          label={t("editor.timeline.clipLabel", { n: activeIndex + 1 })}
           onSeek={seek}
           onTrim={(s, e) => onTrim(activeIndex, s, e)}
           onTrimEnd={() => setAnchor(rangeOf(useSessionStore.getState().session!.highlights[activeIndex]))}
         />
 
         <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
-          {locked
-            ? "This clip is already rendered, so its range is locked."
-            : "Drag the white handles to trim, or drag the clip to move it. Handles snap to word edges; hold Alt to move freely. Keys: Space play · ←/→ seek · I/O set start/end."}
+          {locked ? t("editor.transport.hintLocked") : t("editor.transport.hint")}
         </p>
       </section>
     </div>
@@ -557,7 +583,7 @@ function IconBtn({
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="w-8 h-8 rounded-full flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+      className="w-9 h-9 rounded-full flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30 disabled:pointer-events-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
     >
       {children}
     </button>
@@ -571,31 +597,36 @@ function ProxyStatus({
   proxy: EditorProps["proxy"];
   onRetry: () => void;
 }) {
+  const { t } = useTranslation();
   if (proxy?.status === "error") {
     return (
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-        <AlertTriangle className="w-6 h-6 text-[var(--color-error)]" />
-        <p className="text-sm text-[var(--color-text-primary)]">Preview video could not be downloaded.</p>
-        <p className="text-xs text-[var(--color-text-muted)] max-w-md line-clamp-3">{proxy.error}</p>
-        <Button size="sm" variant="outline" onClick={onRetry}>
-          Try again
+      <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+        <AlertTriangle aria-hidden className="w-6 h-6 text-[var(--color-error)]" />
+        <p className="text-sm font-semibold text-[var(--color-text-primary)]">{t("editor.proxy.errorTitle")}</p>
+        {proxy.error && (
+          <p className="text-xs text-[var(--color-text-muted)] max-w-md line-clamp-3">
+            {t("editor.proxy.errorReason", { reason: proxy.error })}
+          </p>
+        )}
+        <Button size="sm" variant="outline" onClick={onRetry} className="h-9 px-4">
+          {t("editor.proxy.retry")}
         </Button>
-        <p className="text-[11px] text-[var(--color-text-muted)]">
-          You can still trim on the timeline and process clips without the preview.
-        </p>
+        <p className="text-xs text-[var(--color-text-muted)] max-w-sm">{t("editor.proxy.errorHint")}</p>
       </div>
     );
   }
   const pct = proxy?.percent ?? 0;
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6">
-      <Loader2 className="w-6 h-6 animate-spin text-[var(--color-text-secondary)]" />
-      <p className="text-sm text-[var(--color-text-primary)]">Downloading preview video… {Math.floor(pct)}%</p>
+    <div role="status" className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6">
+      <Loader2 aria-hidden className="w-6 h-6 animate-spin text-[var(--color-text-secondary)]" />
+      <p className="text-sm text-[var(--color-text-primary)]">
+        {t("editor.proxy.downloading", { percent: Math.floor(pct) })}
+      </p>
       <div className="w-56 h-1.5 rounded-full bg-[var(--color-bg-hover)] overflow-hidden">
-        <div className="h-full bg-[var(--color-accent)] transition-all duration-300" style={{ width: `${pct}%` }} />
+        <div className="h-full bg-[var(--color-text-secondary)] transition-all duration-300" style={{ width: `${pct}%` }} />
       </div>
-      <p className="text-[11px] text-[var(--color-text-muted)] max-w-sm text-center truncate">
-        {proxy?.lastLog ?? "A 360p copy of the whole video, used only for previewing."}
+      <p className="text-xs text-[var(--color-text-muted)] max-w-sm text-center truncate">
+        {proxy?.lastLog ?? t("editor.proxy.downloadingHint")}
       </p>
     </div>
   );
@@ -612,36 +643,46 @@ interface ClipRowProps {
 }
 
 function ClipRow({ index, highlight, active, selected, processed, onActivate, onToggle }: ClipRowProps) {
+  const { t } = useTranslation();
   const v = viralityStyle(highlight.virality_score);
   const { start, end } = rangeOf(highlight);
+  const n = index + 1;
   return (
     <div
       role="button"
       tabIndex={0}
+      aria-current={active ? "true" : undefined}
       onClick={onActivate}
       onKeyDown={(e) => {
         if (e.key === "Enter") onActivate();
       }}
-      className={`group flex items-start gap-2 rounded-[var(--radius)] px-2.5 py-2 cursor-pointer transition-colors ${
+      className={`group flex items-start gap-2 rounded-[var(--radius)] px-2.5 py-2 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${
         active ? "bg-[var(--color-bg-hover)]" : "hover:bg-[var(--color-bg-card)]"
       }`}
     >
       <button
         type="button"
-        aria-label={processed ? "Already rendered" : selected ? "Deselect clip" : "Select clip"}
+        aria-label={
+          processed
+            ? t("editor.list.alreadyRendered", { n })
+            : selected
+              ? t("editor.list.deselect", { n })
+              : t("editor.list.select", { n })
+        }
+        aria-pressed={processed ? undefined : selected}
         disabled={processed}
         onClick={(e) => {
           e.stopPropagation();
           onToggle();
         }}
-        className="pt-0.5 shrink-0 cursor-pointer disabled:cursor-default"
+        className="-m-2.5 p-2.5 pt-3 shrink-0 rounded-[var(--radius-sm)] cursor-pointer disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
       >
         {processed ? (
-          <CheckCircle2 className="w-4 h-4 text-[var(--color-success)]" />
+          <CheckCircle2 aria-hidden className="w-4 h-4 text-[var(--color-success)]" />
         ) : selected ? (
-          <CheckSquare className="w-4 h-4 text-[var(--color-accent)]" />
+          <CheckSquare aria-hidden className="w-4 h-4 text-[var(--color-accent)]" />
         ) : (
-          <Square className="w-4 h-4 text-[var(--color-text-muted)]" />
+          <Square aria-hidden className="w-4 h-4 text-[var(--color-text-muted)]" />
         )}
       </button>
       <div className="flex-1 min-w-0">
@@ -650,16 +691,20 @@ function ClipRow({ index, highlight, active, selected, processed, onActivate, on
             active ? "text-[var(--color-text-primary)] font-medium" : "text-[var(--color-text-secondary)]"
           }`}
         >
-          <span className="text-[var(--color-text-muted)]">#{index + 1}</span> {highlight.title}
+          <span className="text-[var(--color-text-muted)]">{t("editor.list.clipNumber", { n })}</span> {highlight.title}
         </p>
-        <div className="mt-1 flex items-center gap-2 text-[11px] text-[var(--color-text-muted)] tabular-nums">
-          <span className="inline-flex items-center gap-0.5" style={{ color: v.color }}>
-            <v.Icon className="w-3 h-3" />
+        <div className="mt-1 flex items-center gap-2 text-xs text-[var(--color-text-muted)] tabular-nums">
+          <span
+            className="inline-flex items-center gap-0.5"
+            style={{ color: v.color }}
+            title={t("editor.list.score", { score: highlight.virality_score })}
+          >
+            <v.Icon aria-hidden className="w-3 h-3" />
             {highlight.virality_score}
           </span>
-          <span>{(end - start).toFixed(0)}s</span>
-          {processed && <span className="text-[var(--color-success)]">Ready</span>}
-          {!processed && isEdited(highlight) && <span className="text-[var(--color-warning)]">Edited</span>}
+          <span>{t("editor.list.seconds", { n: (end - start).toFixed(0) })}</span>
+          {processed && <span className="text-[var(--color-success)]">{t("editor.list.rendered")}</span>}
+          {!processed && isEdited(highlight) && <span>{t("editor.list.edited")}</span>}
         </div>
       </div>
     </div>
@@ -675,6 +720,7 @@ interface ClipDetailsProps {
   rangeText: string;
   padding: { leadIn: number; tailOut: number };
   sessionDir: string;
+  projectTitle?: string;
   onSetStart: () => void;
   onSetEnd: () => void;
   onNudge: (edge: "start" | "end", delta: number) => void;
@@ -690,11 +736,13 @@ function ClipDetails({
   rangeText,
   padding,
   sessionDir,
+  projectTitle,
   onSetStart,
   onSetEnd,
   onNudge,
   onReset,
 }: ClipDetailsProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const v = viralityStyle(highlight.virality_score);
   const clipPath = clipPathFor(sessionDir, index);
@@ -702,29 +750,30 @@ function ClipDetails({
   return (
     <div className="rounded-[var(--radius-lg)] bg-[var(--color-bg-primary)] border border-[var(--color-border-light)] p-4 space-y-4">
       <div className="flex items-start gap-2">
-        <p className="flex-1 text-sm font-semibold text-[var(--color-text-primary)] leading-snug">
-          <span className="text-[var(--color-text-muted)]">#{index + 1}</span> {highlight.title}
-        </p>
+        <h2 className="flex-1 text-sm font-semibold text-[var(--color-text-primary)] leading-snug">
+          <span className="text-[var(--color-text-muted)]">{t("editor.list.clipNumber", { n: index + 1 })}</span>{" "}
+          {highlight.title}
+        </h2>
         <span
-          className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full shrink-0"
-          style={{ color: v.color, backgroundColor: v.bg }}
+          className="inline-flex items-center gap-1 text-xs font-semibold shrink-0 tabular-nums"
+          style={{ color: v.color }}
+          title={t("editor.list.score", { score: highlight.virality_score })}
         >
-          <v.Icon className="w-3 h-3" />
-          {highlight.virality_score}/10
+          <v.Icon aria-hidden className="w-3 h-3" />
+          {t("editor.details.scoreBadge", { score: highlight.virality_score })}
         </span>
       </div>
 
       {highlight.hook_text && (
         <div className="flex items-start gap-2 text-sm">
-          <Quote className="w-4 h-4 shrink-0 mt-0.5 text-[var(--color-text-muted)]" />
+          <Quote aria-hidden className="w-4 h-4 shrink-0 mt-0.5 text-[var(--color-text-muted)]" />
           <span className="text-[var(--color-text-primary)]">{highlight.hook_text}</span>
         </div>
       )}
 
-      {/* Range controls */}
       <div className="rounded-[var(--radius)] bg-[var(--color-bg-card)] p-3 space-y-2">
         <EdgeRow
-          label="Start"
+          edge="start"
           value={start}
           locked={locked}
           onMinus={() => onNudge("start", -0.5)}
@@ -732,24 +781,22 @@ function ClipDetails({
           onHere={onSetStart}
         />
         <EdgeRow
-          label="End"
+          edge="end"
           value={end}
           locked={locked}
           onMinus={() => onNudge("end", -0.5)}
           onPlus={() => onNudge("end", 0.5)}
           onHere={onSetEnd}
         />
-        <div className="flex items-center justify-between pt-1 text-[11px] text-[var(--color-text-muted)]">
-          <span>
-            Render adds {padding.leadIn}s before and {padding.tailOut}s after
-          </span>
+        <div className="flex items-center justify-between gap-2 pt-1 text-xs text-[var(--color-text-muted)]">
+          <span>{t("editor.details.padding", { leadIn: padding.leadIn, tailOut: padding.tailOut })}</span>
           {isEdited(highlight) && !locked && (
             <button
               type="button"
               onClick={onReset}
-              className="inline-flex items-center gap-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] cursor-pointer"
+              className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-[var(--radius-sm)] px-1 text-[var(--color-accent)] hover:underline cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
             >
-              <Undo2 className="w-3 h-3" /> Reset to AI
+              <Undo2 aria-hidden className="w-3 h-3" /> {t("editor.details.reset")}
             </button>
           )}
         </div>
@@ -760,9 +807,9 @@ function ClipDetails({
       )}
 
       <div>
-        <p className="text-xs font-medium text-[var(--color-text-muted)] mb-1">Transcript in range</p>
+        <h3 className="text-xs font-medium text-[var(--color-text-secondary)] mb-1">{t("editor.details.transcriptTitle")}</h3>
         <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed max-h-40 overflow-y-auto">
-          {rangeText || "No transcript for this range."}
+          {rangeText || <span className="text-[var(--color-text-muted)]">{t("editor.details.transcriptEmpty")}</span>}
         </p>
       </div>
 
@@ -771,7 +818,7 @@ function ClipDetails({
           <Button
             variant="outline"
             size="sm"
-            className="gap-1.5"
+            className="h-9 gap-1.5"
             onClick={() =>
               navigate("/clip", {
                 state: {
@@ -783,19 +830,20 @@ function ClipDetails({
                   endTime: highlight.end_time.split(",")[0],
                   sessionDir,
                   highlightIndex: index,
+                  projectTitle,
                 },
               })
             }
           >
-            <Play className="w-3.5 h-3.5" /> View clip
+            <Play aria-hidden className="w-3.5 h-3.5" /> {t("editor.details.viewClip")}
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            className="gap-1.5"
+            className="h-9 gap-1.5"
             onClick={() => invoke("open_path_in_explorer", { path: clipPath }).catch(console.error)}
           >
-            <FolderOpen className="w-3.5 h-3.5" /> Open folder
+            <FolderOpen aria-hidden className="w-3.5 h-3.5" /> {t("editor.details.openFolder")}
           </Button>
         </div>
       )}
@@ -804,34 +852,40 @@ function ClipDetails({
 }
 
 function EdgeRow({
-  label,
+  edge,
   value,
   locked,
   onMinus,
   onPlus,
   onHere,
 }: {
-  label: string;
+  edge: "start" | "end";
   value: number;
   locked: boolean;
   onMinus: () => void;
   onPlus: () => void;
   onHere: () => void;
 }) {
+  const { t } = useTranslation();
+  const label = edge === "start" ? t("editor.details.start") : t("editor.details.end");
+  const edgeWord = edge === "start" ? t("editor.details.edgeStart") : t("editor.details.edgeEnd");
+  const hereTitle = edge === "start" ? t("editor.details.hereTitleStart") : t("editor.details.hereTitleEnd");
+  const minusLabel = t("editor.details.minus", { edge: edgeWord });
+  const plusLabel = t("editor.details.plus", { edge: edgeWord });
   const btn =
-    "h-7 px-2 rounded-[var(--radius-sm)] text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30 disabled:pointer-events-none cursor-pointer";
+    "h-9 px-2 rounded-[var(--radius-sm)] text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30 disabled:pointer-events-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]";
   return (
     <div className="flex items-center gap-1">
-      <span className="w-10 text-xs text-[var(--color-text-muted)]">{label}</span>
+      <span className="w-12 text-xs text-[var(--color-text-muted)]">{label}</span>
       <span className="flex-1 text-sm tabular-nums text-[var(--color-text-primary)]">{formatClock(value)}</span>
-      <button type="button" className={btn} disabled={locked} onClick={onMinus} title="−0.5s">
+      <button type="button" className={btn} disabled={locked} onClick={onMinus} aria-label={minusLabel} title={minusLabel}>
         −0.5
       </button>
-      <button type="button" className={btn} disabled={locked} onClick={onPlus} title="+0.5s">
+      <button type="button" className={btn} disabled={locked} onClick={onPlus} aria-label={plusLabel} title={plusLabel}>
         +0.5
       </button>
-      <button type="button" className={btn} disabled={locked} onClick={onHere} title={`Set ${label.toLowerCase()} at the playhead`}>
-        Here
+      <button type="button" className={btn} disabled={locked} onClick={onHere} title={hereTitle}>
+        {t("editor.details.here")}
       </button>
     </div>
   );

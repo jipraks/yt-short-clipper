@@ -1,17 +1,19 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Save, Loader2, RotateCcw } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
-import { listHookFonts, readFontAsBase64, type HookStyleSettings } from "@/hooks/appConfig";
+import { Slider } from "@/components/ui/slider";
+import { Combobox } from "@/components/ui/combobox";
+import { listHookFonts, readFontAsBase64, type FontInfo, type HookStyleSettings } from "@/hooks/appConfig";
 import { useConfigStore } from "@/stores/configStore";
 
-const CANVAS_W = 270;
-const CANVAS_H = 480;
+const CANVAS_W = 288;
+const CANVAS_H = 512;
 const VIDEO_W = 1080;
+const SCALE = CANVAS_W / VIDEO_W;
 
 const DEFAULTS: HookStyleSettings = {
   fontName: "Arial",
@@ -25,27 +27,54 @@ const DEFAULTS: HookStyleSettings = {
   durationSeconds: 5,
 };
 
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** Accepts "#abc", "abc", "#aabbcc" or "aabbcc"; anything else is null. */
+function normalizeHex(raw: string): string | null {
+  let v = raw.trim();
+  if (!v.startsWith("#")) v = `#${v}`;
+  if (/^#[0-9a-f]{3}$/i.test(v)) v = `#${v[1]}${v[1]}${v[2]}${v[2]}${v[3]}${v[3]}`;
+  return HEX.test(v) ? v.toUpperCase() : null;
+}
+
+/** The renderer upper-cases the hook and breaks it every three words. */
+function hookLines(text: string): string[] {
+  const words = text.toUpperCase().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  for (let i = 0; i < words.length; i += 3) lines.push(words.slice(i, i + 3).join(" "));
+  return lines;
+}
+
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+/**
+ * The hook text burned over the first seconds of each clip. A 9:16 preview on
+ * the left mirrors the renderer's layout (upper case, three words a line, one
+ * box per line) and can be dragged; the controls on the right are grouped by
+ * what they change.
+ */
 export function HookStyleSettingsPage() {
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { config, loaded, load, setHookStyle } = useConfigStore();
 
-  const [fontName, setFontName] = useState("Arial");
-  const [fontPath, setFontPath] = useState("");
-  const [fonts, setFonts] = useState<{ name: string; path: string }[]>([]);
-  const [fontLoading, setFontLoading] = useState(false);
-  const [fontDataUrls, setFontDataUrls] = useState<Map<string, string>>(new Map());
-
-  const [fontSize, setFontSize] = useState(0.054);
-  const [fontColor, setFontColor] = useState("#FFD700");
-  const [bgColor, setBgColor] = useState("#FFFFFF");
-  const [cornerRadius, setCornerRadius] = useState(0);
-  const [posX, setPosX] = useState(0.5);
-  const [posY, setPosY] = useState(0.333);
-  const [durationSeconds, setDurationSeconds] = useState(5);
+  const [fontName, setFontName] = useState(DEFAULTS.fontName);
+  const [fontPath, setFontPath] = useState(DEFAULTS.fontPath);
+  const [fontSize, setFontSize] = useState(DEFAULTS.fontSize);
+  const [fontColor, setFontColor] = useState(DEFAULTS.fontColor);
+  const [bgColor, setBgColor] = useState(DEFAULTS.bgColor);
+  const [cornerRadius, setCornerRadius] = useState(DEFAULTS.cornerRadius);
+  const [posX, setPosX] = useState(DEFAULTS.positionX);
+  const [posY, setPosY] = useState(DEFAULTS.positionY);
+  const [durationSeconds, setDurationSeconds] = useState(DEFAULTS.durationSeconds);
   const [saving, setSaving] = useState(false);
 
+  const [fonts, setFonts] = useState<FontInfo[] | null>(null);
+  const [fontsFailed, setFontsFailed] = useState(false);
+  const [fontUrls, setFontUrls] = useState<Record<string, string>>({});
+
   const canvasRef = useRef<HTMLDivElement>(null);
-  const dragState = useRef<{ offsetX: number; offsetY: number } | null>(null);
+  const drag = useRef<{ dx: number; dy: number } | null>(null);
 
   useEffect(() => {
     load();
@@ -66,104 +95,97 @@ export function HookStyleSettingsPage() {
   }, [loaded, config.hookStyle]);
 
   useEffect(() => {
-    if (fonts.length > 0) return;
-    setFontLoading(true);
     listHookFonts()
-      .then((result) => {
-        setFonts(result);
-        if (result.length === 0) return;
-        const exists = result.some((f) => f.name === fontName);
-        if (!exists) {
-          setFontName(result[0].name);
-          setFontPath(result[0].path);
-        }
-        // Load each font as data URL for preview
-        const map = new Map<string, string>();
-        const loads = result.map(async (f) => {
-          try {
-            const dataUrl = await readFontAsBase64(f.path);
-            map.set(f.path, dataUrl);
-          } catch {
-            // skip
-          }
-        });
-        Promise.allSettled(loads).then(() => setFontDataUrls(new Map(map)));
-      })
+      .then(setFonts)
       .catch((err) => {
         console.error("Failed to list hook fonts", err);
-      })
-      .finally(() => setFontLoading(false));
-  }, [fonts.length, fontName]);
+        setFontsFailed(true);
+        setFonts([]);
+      });
+  }, []);
 
-  const handleFontSelect = (name: string) => {
+  // A saved font that is no longer installed falls back to the first one found.
+  useEffect(() => {
+    if (!loaded || !fonts || fonts.length === 0) return;
+    if (!fonts.some((f) => f.name === fontName)) {
+      setFontName(fonts[0].name);
+      setFontPath(fonts[0].path);
+    }
+  }, [loaded, fonts, fontName]);
+
+  // Only the chosen font is read, so the preview can draw with it.
+  useEffect(() => {
+    if (!fontPath || fontUrls[fontPath]) return;
+    let live = true;
+    readFontAsBase64(fontPath)
+      .then((url) => live && setFontUrls((m) => ({ ...m, [fontPath]: url })))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [fontPath, fontUrls]);
+
+  const pickFont = (name: string) => {
     setFontName(name);
-    const found = fonts.find((f) => f.name === name);
+    const found = fonts?.find((f) => f.name === name);
     if (found) setFontPath(found.path);
   };
 
+  const fontGroups = useMemo(() => {
+    if (fonts === null) return [];
+    const options = fonts.map((f) => ({ value: f.name, label: f.name }));
+    if (fontName && !options.some((o) => o.value === fontName)) options.unshift({ value: fontName, label: fontName });
+    return [{ options }];
+  }, [fonts, fontName]);
+
   const onPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const markLeft = posX * CANVAS_W;
-      const markTop = posY * CANVAS_H;
-      // Allow drag anywhere on canvas for convenience
-      dragState.current = {
-        offsetX: e.clientX - rect.left - markLeft,
-        offsetY: e.clientY - rect.top - markTop,
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      drag.current = {
+        dx: e.clientX - rect.left - posX * CANVAS_W,
+        dy: e.clientY - rect.top - posY * CANVAS_H,
       };
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [posX, posY]
+    [posX, posY],
   );
 
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!dragState.current) return;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      let x = e.clientX - rect.left - dragState.current.offsetX;
-      let y = e.clientY - rect.top - dragState.current.offsetY;
-      x = Math.max(0, Math.min(x, CANVAS_W));
-      y = Math.max(0, Math.min(y, CANVAS_H));
-      setPosX(x / CANVAS_W);
-      setPosY(y / CANVAS_H);
-    },
-    []
-  );
-
-  const onPointerUp = useCallback((e: React.PointerEvent) => {
-    dragState.current = null;
-    (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!drag.current || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    setPosX(clamp01((e.clientX - rect.left - drag.current.dx) / CANVAS_W));
+    setPosY(clamp01((e.clientY - rect.top - drag.current.dy) / CANVAS_H));
   }, []);
 
-  const handleSave = async () => {
+  const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    drag.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  }, []);
+
+  const save = async () => {
     setSaving(true);
-    const next: HookStyleSettings = {
-      fontName,
-      fontPath,
-      fontSize,
-      fontColor,
-      bgColor,
-      cornerRadius,
-      positionX: posX,
-      positionY: posY,
-      durationSeconds,
-    };
     try {
-      await setHookStyle(next);
-      toast.success("Hook style settings saved");
+      await setHookStyle({
+        fontName,
+        fontPath,
+        fontSize,
+        fontColor,
+        bgColor,
+        cornerRadius,
+        positionX: posX,
+        positionY: posY,
+        durationSeconds,
+      });
+      toast.success(t("hookStyleSettings.saved"));
       navigate("/settings");
     } catch {
-      toast.error("Failed to save hook style settings");
+      toast.error(t("hookStyleSettings.saveFailed"));
     } finally {
       setSaving(false);
     }
   };
 
-  const handleReset = () => {
+  const reset = () => {
     setFontName(DEFAULTS.fontName);
     setFontPath(DEFAULTS.fontPath);
     setFontSize(DEFAULTS.fontSize);
@@ -175,299 +197,262 @@ export function HookStyleSettingsPage() {
     setDurationSeconds(DEFAULTS.durationSeconds);
   };
 
-  // Preview calculations
-  const scale = CANVAS_W / VIDEO_W;
-  const videoFontPx = Math.round(fontSize * VIDEO_W);
-  const previewFontPx = Math.max(8, Math.round(videoFontPx * scale));
-  const sampleText = "HOOK PREVIEW";
-  const textWidth = Math.round(0.55 * previewFontPx * sampleText.length);
-  const textHeight = Math.round(previewFontPx * 1.2);
-  const padding = Math.max(6, Math.round(12 * scale * 4));
-  const boxW = textWidth + padding * 2;
-  const boxH = textHeight + padding * 2;
-  const cx = Math.round(posX * CANVAS_W);
-  const cy = Math.round(posY * CANVAS_H);
-  const radiusVideo = Math.round(cornerRadius);
-  const radiusCanvas = Math.max(0, Math.min(Math.round(radiusVideo * scale), boxW / 2, boxH / 2));
+  const num = (n: number, digits = 0) => n.toLocaleString(i18n.language, { maximumFractionDigits: digits });
 
-  const selectedFontDataUrl = fontDataUrls.get(fontPath);
-
-  const boxStyle: React.CSSProperties = {
-    position: "absolute",
-    left: cx - boxW / 2,
-    top: cy - boxH / 2,
-    width: boxW,
-    height: boxH,
-    backgroundColor: bgColor,
-    borderRadius: radiusCanvas,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "grab",
-  };
-
-  const textStyle: React.CSSProperties = {
-    color: fontColor,
-    fontSize: previewFontPx,
-    fontFamily: selectedFontDataUrl
-      ? `"hook-${fontName}", ${fontName}, sans-serif`
-      : fontName,
-    fontWeight: "bold",
-    lineHeight: 1,
-    userSelect: "none",
-  };
+  // Same numbers the renderer uses, scaled from 1080 px wide to the preview.
+  const videoFontPx = Math.max(20, fontSize * VIDEO_W);
+  const previewFontPx = videoFontPx * SCALE;
+  const padding = Math.max(10, videoFontPx * 0.22) * SCALE;
+  const lineGap = Math.max(6, videoFontPx * 0.25) * SCALE;
+  const fontUrl = fontUrls[fontPath];
+  const previewFamily = `cuplik-hook-${fontName.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const lines = hookLines(t("hookStyleSettings.preview.sample"));
 
   return (
-    <div className="space-y-5 max-w-4xl">
-      {/* Inject @font-face for selected font so preview uses it */}
-      {selectedFontDataUrl && (
-        <style>{`
-          @font-face {
-            font-family: "hook-${fontName}";
-            src: url("${selectedFontDataUrl}") format("truetype");
-          }
-        `}</style>
+    <div className="mx-auto max-w-4xl py-4">
+      {fontUrl && (
+        <style>{`@font-face { font-family: "${previewFamily}"; src: url("${fontUrl}"); }`}</style>
       )}
 
-      <Button
-        variant="ghost"
+      <button
+        type="button"
         onClick={() => navigate("/settings")}
-        className="gap-2 text-[var(--color-text-secondary)]"
+        className="-ml-2 inline-flex min-h-10 items-center gap-1.5 rounded-full px-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
       >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Settings
-      </Button>
+        <ArrowLeft aria-hidden className="h-4 w-4" />
+        {t("hookStyleSettings.back")}
+      </button>
 
-      <div>
-        <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Hook Style</h1>
-        <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          Customize the hook text shown over the opening seconds of the clip. Drag the box on the preview to reposition it.
-        </p>
-      </div>
+      <h1 className="mt-4 text-2xl font-bold text-[var(--color-text-primary)]">{t("hookStyleSettings.title")}</h1>
+      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{t("hookStyleSettings.subtitle")}</p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Left: controls */}
-        <div className="space-y-5">
-          <Card>
-            <CardHeader>
-              <CardTitle>Font</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {fontLoading ? (
-                <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Loading fonts...
-                </div>
-              ) : (
-                <>
-                  <select
-                    value={fontName}
-                    onChange={(e) => handleFontSelect(e.target.value)}
-                    className="w-full h-10 px-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-border-focus)]"
-                  >
-                    {fonts.map((f) => (
-                      <option key={f.name} value={f.name}>
-                        {f.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Font preview samples */}
-                  {fonts.length > 0 && (
-                    <div className="space-y-1 mt-3 max-h-48 overflow-y-auto">
-                      {fonts.map((f) => {
-                        const dataUrl = fontDataUrls.get(f.path);
-                        return (
-                          <div
-                            key={f.name}
-                            className={`px-3 py-2 rounded-[var(--radius-sm)] cursor-pointer transition-colors ${
-                              f.name === fontName
-                                ? "bg-[var(--color-accent-light)] border border-[var(--color-accent)]/30"
-                                : "hover:bg-[var(--color-bg-hover)]"
-                            }`}
-                            onClick={() => handleFontSelect(f.name)}
-                          >
-                            <p className="text-xs text-[var(--color-text-muted)] mb-1">{f.name}</p>
-                            {dataUrl ? (
-                              <div>
-                                <style>{`
-                                  @font-face {
-                                    font-family: "hook-${f.name}";
-                                    src: url("${dataUrl}") format("truetype");
-                                  }
-                                `}</style>
-                                <p
-                                  className="text-lg"
-                                  style={{ fontFamily: `"hook-${f.name}", sans-serif` }}
-                                >
-                                  The quick brown fox jumps over the lazy dog
-                                </p>
-                              </div>
-                            ) : (
-                              <p className="text-sm text-[var(--color-text-muted)] italic">
-                                {f.name}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-[var(--color-text-secondary)]">
-                    Font Size
-                  </label>
-                  <span className="text-sm text-[var(--color-text-muted)]">
-                    {(fontSize * 100).toFixed(1)}%
-                  </span>
-                </div>
-                <Slider
-                  value={[fontSize]}
-                  onValueChange={(v) => setFontSize(v[0])}
-                  min={0.025}
-                  max={0.1}
-                  step={0.0025}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Colors</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Font color */}
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-[var(--color-text-secondary)] w-24 shrink-0">
-                  Text
-                </label>
-                <input
-                  type="color"
-                  value={fontColor}
-                  onChange={(e) => setFontColor(e.target.value)}
-                  className="w-8 h-8 rounded cursor-pointer bg-transparent border-0"
-                />
-                <Input
-                  value={fontColor}
-                  onChange={(e) => setFontColor(e.target.value)}
-                  className="flex-1 font-mono text-sm"
-                />
-              </div>
-
-              {/* BG color */}
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-[var(--color-text-secondary)] w-24 shrink-0">
-                  Background
-                </label>
-                <input
-                  type="color"
-                  value={bgColor}
-                  onChange={(e) => setBgColor(e.target.value)}
-                  className="w-8 h-8 rounded cursor-pointer bg-transparent border-0"
-                />
-                <Input
-                  value={bgColor}
-                  onChange={(e) => setBgColor(e.target.value)}
-                  className="flex-1 font-mono text-sm"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Shape & Position</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-[var(--color-text-secondary)]">
-                    Corner Radius
-                  </label>
-                  <span className="text-sm text-[var(--color-text-muted)]">{cornerRadius}px</span>
-                </div>
-                <Slider
-                  value={[cornerRadius]}
-                  onValueChange={(v) => setCornerRadius(v[0])}
-                  min={0}
-                  max={80}
-                  step={1}
-                />
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  Output video pixels. 0 = sharp corners.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-[var(--color-text-secondary)]">
-                    Hook Duration
-                  </label>
-                  <span className="text-sm text-[var(--color-text-muted)]">
-                    {durationSeconds.toFixed(1)}s
-                  </span>
-                </div>
-                <Slider
-                  value={[durationSeconds]}
-                  onValueChange={(v) => setDurationSeconds(v[0])}
-                  min={1}
-                  max={15}
-                  step={0.5}
-                />
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  How long the hook text stays on screen from the start of the clip.
-                </p>
-              </div>
-
-              <div className="text-sm text-[var(--color-text-muted)]">
-                Position: {Math.round(posX * 100)}% X, {Math.round(posY * 100)}% Y
-              </div>
-
-              <Button variant="outline" size="sm" onClick={handleReset} className="w-full gap-2">
-                <RotateCcw className="w-3.5 h-3.5" />
-                Reset to Default
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right: preview */}
-        <div className="flex flex-col items-center gap-2">
-          <p className="text-sm font-medium text-[var(--color-text-secondary)] self-start">
-            Preview (9:16)
-          </p>
+      <div className="mt-8 grid gap-8 md:grid-cols-[minmax(0,288px)_minmax(0,1fr)]">
+        {/* Preview */}
+        <div className="md:sticky md:top-4 md:self-start">
           <div
             ref={canvasRef}
-            className="relative rounded-[var(--radius)] overflow-hidden border border-[var(--color-border)] bg-[#15151a] select-none"
-            style={{ width: CANVAS_W, height: CANVAS_H }}
+            role="img"
+            aria-label={t("hookStyleSettings.preview.label")}
+            onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            className="relative mx-auto touch-none select-none overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[linear-gradient(180deg,#24242b_0%,#141418_100%)] cursor-grab active:cursor-grabbing"
+            style={{ width: CANVAS_W, height: CANVAS_H }}
           >
-            {/* center hint */}
-            <div className="absolute inset-0 flex items-center justify-center text-[var(--color-text-muted)] text-xs pointer-events-none">
-              9:16 Video
-            </div>
-
-            {/* Hook box */}
-            <div style={boxStyle} onPointerDown={onPointerDown}>
-              <span style={textStyle}>{sampleText}</span>
+            <div
+              className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
+              style={{ left: posX * CANVAS_W, top: posY * CANVAS_H, gap: lineGap }}
+            >
+              {lines.map((line, i) => (
+                <span
+                  key={i}
+                  className="whitespace-nowrap font-bold leading-none"
+                  style={{
+                    padding,
+                    backgroundColor: bgColor,
+                    color: fontColor,
+                    borderRadius: cornerRadius * SCALE,
+                    fontSize: previewFontPx,
+                    fontFamily: fontUrl ? `"${previewFamily}", sans-serif` : `"${fontName}", sans-serif`,
+                  }}
+                >
+                  {line}
+                </span>
+              ))}
             </div>
           </div>
-          <p className="text-xs text-[var(--color-text-muted)]">
-            Tip: drag anywhere on the preview to reposition
-          </p>
+          <p className="mt-3 text-center text-xs text-[var(--color-text-muted)]">{t("hookStyleSettings.preview.hint")}</p>
+        </div>
+
+        {/* Controls */}
+        <div className="min-w-0">
+          <Group title={t("hookStyleSettings.text.title")} body={t("hookStyleSettings.text.body")} first>
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-[var(--color-text-primary)]">{t("hookStyleSettings.text.font")}</p>
+              <Combobox
+                label={t("hookStyleSettings.text.font")}
+                value={fontName}
+                groups={fontGroups}
+                onChange={pickFont}
+                disabled={fonts === null}
+                placeholder={fonts === null ? t("hookStyleSettings.text.fontLoading") : fontName}
+                searchPlaceholder={t("hookStyleSettings.text.fontSearch")}
+                emptyText={t("hookStyleSettings.text.fontEmpty")}
+                triggerClassName="inline-flex h-11 w-full items-center justify-between gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-4 text-sm text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-60"
+              />
+              {fontsFailed && <p className="text-xs text-[var(--color-warning)]">{t("hookStyleSettings.text.fontsFailed")}</p>}
+            </div>
+            <SliderField
+              label={t("hookStyleSettings.text.size")}
+              readout={t("hookStyleSettings.text.sizeValue", { value: num(fontSize * 100, 1) })}
+              value={fontSize}
+              onChange={setFontSize}
+              min={0.025}
+              max={0.1}
+              step={0.0025}
+            />
+            <ColorField label={t("hookStyleSettings.text.color")} value={fontColor} onChange={setFontColor} />
+          </Group>
+
+          <Group title={t("hookStyleSettings.box.title")} body={t("hookStyleSettings.box.body")}>
+            <ColorField label={t("hookStyleSettings.box.background")} value={bgColor} onChange={setBgColor} />
+            <SliderField
+              label={t("hookStyleSettings.box.radius")}
+              readout={
+                cornerRadius === 0
+                  ? t("hookStyleSettings.box.radiusSharp")
+                  : t("hookStyleSettings.box.radiusValue", { value: num(cornerRadius) })
+              }
+              value={cornerRadius}
+              onChange={setCornerRadius}
+              min={0}
+              max={80}
+              step={1}
+            />
+          </Group>
+
+          <Group title={t("hookStyleSettings.placement.title")} body={t("hookStyleSettings.placement.body")}>
+            <SliderField
+              label={t("hookStyleSettings.placement.x")}
+              readout={t("hookStyleSettings.placement.percent", { value: num(posX * 100) })}
+              value={posX}
+              onChange={setPosX}
+              min={0}
+              max={1}
+              step={0.01}
+            />
+            <SliderField
+              label={t("hookStyleSettings.placement.y")}
+              readout={t("hookStyleSettings.placement.percent", { value: num(posY * 100) })}
+              value={posY}
+              onChange={setPosY}
+              min={0}
+              max={1}
+              step={0.01}
+            />
+            <SliderField
+              label={t("hookStyleSettings.placement.duration")}
+              readout={t("hookStyleSettings.placement.durationValue", { count: durationSeconds, value: num(durationSeconds, 1) })}
+              hint={t("hookStyleSettings.placement.durationBody")}
+              value={durationSeconds}
+              onChange={setDurationSeconds}
+              min={1}
+              max={15}
+              step={0.5}
+            />
+          </Group>
+
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Button onClick={() => void save()} disabled={saving || !loaded} className="h-11 gap-2 px-6">
+              {saving && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+              {saving ? t("hookStyleSettings.saving") : t("hookStyleSettings.save")}
+            </Button>
+            <Button variant="ghost" onClick={reset} disabled={saving} className="h-11 px-4 text-[var(--color-text-secondary)]">
+              {t("hookStyleSettings.reset")}
+            </Button>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      <Button onClick={handleSave} disabled={saving || !loaded} className="w-full h-12 gap-2">
-        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-        Save hook style settings
-      </Button>
+function Group({ title, body, first, children }: { title: string; body: string; first?: boolean; children: React.ReactNode }) {
+  return (
+    <section className={first ? undefined : "mt-9"}>
+      <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{title}</h2>
+      <p className="mt-1 text-sm text-[var(--color-text-secondary)] leading-relaxed">{body}</p>
+      <div className="mt-3 space-y-5 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-4">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function SliderField({
+  label,
+  readout,
+  hint,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+}: {
+  label: string;
+  readout: string;
+  hint?: string;
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step: number;
+}) {
+  const id = useId();
+  return (
+    <div role="group" aria-labelledby={id} className="space-y-2.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <p id={id} className="text-sm font-medium text-[var(--color-text-primary)]">
+          {label}
+        </p>
+        <span className="text-sm tabular-nums text-[var(--color-text-secondary)]">{readout}</span>
+      </div>
+      <Slider value={[value]} onValueChange={(v) => onChange(v[0])} min={min} max={max} step={step} className="min-h-6" />
+      {hint && <p className="text-xs text-[var(--color-text-muted)]">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * A swatch that opens the system color picker, plus the hex code to type.
+ * A full six-digit code applies as it is typed; a short one like "fc0" is
+ * expanded on blur, and anything unparseable snaps back, so an invalid color
+ * never reaches the renderer.
+ */
+function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (hex: string) => void }) {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const swatch = HEX.test(value) ? value : "#000000";
+
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <p className="text-sm font-medium text-[var(--color-text-primary)]">{label}</p>
+      <div className="flex items-center gap-2">
+        <label className="relative inline-flex h-10 w-10 shrink-0 cursor-pointer overflow-hidden rounded-full border border-[var(--color-border)] focus-within:ring-2 focus-within:ring-[var(--color-border-focus)]">
+          <span aria-hidden className="absolute inset-0" style={{ backgroundColor: swatch }} />
+          <input
+            type="color"
+            value={swatch}
+            onChange={(e) => onChange(e.target.value.toUpperCase())}
+            aria-label={t("hookStyleSettings.color.pick", { field: label })}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          />
+        </label>
+        <Input
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            const hex = normalizeHex(e.target.value);
+            if (hex && e.target.value.replace("#", "").trim().length === 6) onChange(hex);
+          }}
+          onBlur={() => {
+            const hex = normalizeHex(draft);
+            if (hex) onChange(hex);
+            setDraft(hex ?? value);
+          }}
+          aria-label={t("hookStyleSettings.color.hex", { field: label })}
+          spellCheck={false}
+          autoComplete="off"
+          maxLength={7}
+          className="h-10 w-28 font-mono text-sm uppercase"
+        />
+      </div>
     </div>
   );
 }

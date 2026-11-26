@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { useEffect, useState } from "react";
 import i18n from "@/i18n";
@@ -7,6 +7,7 @@ import { CreatePage } from "@/pages/CreatePage";
 import { ProcessingPage } from "@/pages/ProcessingPage";
 import { HighlightSelectionPage } from "@/pages/HighlightSelectionPage";
 import { LibraryPage } from "@/pages/LibraryPage";
+import { ClipsPage } from "@/pages/ClipsPage";
 import { AIModelsPage } from "@/pages/AIModelsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { WatermarkSettingsPage } from "@/pages/WatermarkSettingsPage";
@@ -85,13 +86,15 @@ function App() {
           <Route path="/" element={<CreatePage />} />
           <Route path="/processing" element={<ProcessingPage />} />
           <Route path="/highlights" element={<HighlightSelectionPage />} />
+          <Route path="/clips" element={<ClipsPage />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/ai-models" element={<AIModelsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/watermark" element={<WatermarkSettingsPage />} />
           <Route path="/settings/credit" element={<CreditWatermarkSettingsPage />} />
           <Route path="/settings/hook-style" element={<HookStyleSettingsPage />} />
-          <Route path="/settings/repliz" element={<ReplizSettingsPage />} />
+          <Route path="/repliz" element={<ReplizSettingsPage />} />
+          <Route path="/settings/repliz" element={<Navigate to="/repliz" replace />} />
           <Route path="/settings/credits" element={<CreditsPage />} />
           <Route path="/processing-clips" element={<ProcessingClipsPage />} />
           <Route path="/clip" element={<ClipDetailPage />} />

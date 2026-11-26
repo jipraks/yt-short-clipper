@@ -1,221 +1,247 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Info } from "lucide-react";
+import { Trans, useTranslation } from "react-i18next";
+import { ArrowLeft, ExternalLink } from "lucide-react";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { APP_VERSION } from "@/config/version";
 
+// License texts are legal text and stay in English, word for word.
+const MIT = `Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.`;
+
+const APACHE = `Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.`;
+
+const GPL3 = `This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.`;
+
+const UNLICENSE = `This is free and unencumbered software released into the public domain.
+
+For more information, please refer to <https://unlicense.org>`;
+
+const OFL = `This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is available with a FAQ at: https://openfontlicense.org`;
+
+const MIT_CMU = `Pillow is licensed under the MIT-CMU License.
+The full license text is in the LICENSE file of the source repository linked above.`;
+
+const MIT_OR_APACHE = `Licensed under either of the Apache License, Version 2.0 or the MIT license, at your option.
+
+${MIT}
+
+${APACHE}`;
+
+type LibKey =
+  | "ffmpeg"
+  | "ytdlp"
+  | "mediapipe"
+  | "deno"
+  | "opencv"
+  | "pillow"
+  | "tauri"
+  | "react"
+  | "radix"
+  | "i18next"
+  | "jakarta"
+  | "openai"
+  | "antislop";
+
 interface LibraryInfo {
+  key: LibKey;
   name: string;
   version?: string;
-  description: string;
   license: string;
   url: string;
   /** Copyright line, required for MIT-licensed code copied into this app. */
   copyright?: string;
-  note?: string;
+  licenseText: string;
 }
 
 const LIBRARIES: LibraryInfo[] = [
+  { key: "ffmpeg", name: "FFmpeg", version: "8.0.1 (gyan.dev)", license: "GPL v3", url: "https://ffmpeg.org", licenseText: GPL3 },
+  { key: "ytdlp", name: "yt-dlp", version: "2026.11.23", license: "Unlicense (Public Domain)", url: "https://github.com/yt-dlp/yt-dlp", licenseText: UNLICENSE },
+  { key: "mediapipe", name: "MediaPipe", version: "0.10.31", license: "Apache 2.0", url: "https://github.com/google-ai-edge/mediapipe", licenseText: APACHE },
+  { key: "deno", name: "Deno", version: "2.8.1", license: "MIT", url: "https://github.com/denoland/deno", licenseText: MIT },
+  { key: "opencv", name: "OpenCV", version: "4.12", license: "Apache 2.0", url: "https://github.com/opencv/opencv", licenseText: APACHE },
+  { key: "pillow", name: "Pillow", version: "11.3", license: "MIT-CMU", url: "https://github.com/python-pillow/Pillow", licenseText: MIT_CMU },
+  { key: "tauri", name: "Tauri", version: "2", license: "MIT / Apache 2.0", url: "https://github.com/tauri-apps/tauri", licenseText: MIT_OR_APACHE },
+  { key: "react", name: "React", version: "19", license: "MIT", url: "https://github.com/facebook/react", licenseText: MIT },
   {
-    name: "FFmpeg",
-    version: "8.0.1 (gyan.dev full build)",
-    description: "Audio/video processing, encoding, and format conversion",
-    license: "GPL v3",
-    url: "https://ffmpeg.org",
-    note: "FFmpeg is used as a separate process. Source code available at the link above.",
-  },
-  {
-    name: "yt-dlp",
-    version: "2026.11.23",
-    description: "YouTube video and subtitle downloading",
-    license: "Unlicense (Public Domain)",
-    url: "https://github.com/yt-dlp/yt-dlp",
-  },
-  {
-    name: "MediaPipe",
-    version: "0.10.31",
-    description: "Face detection and landmark tracking for portrait conversion",
-    license: "Apache 2.0",
-    url: "https://github.com/google-ai-edge/mediapipe",
-  },
-  {
-    name: "Deno",
-    version: "2.8.1",
-    description: "JavaScript runtime for yt-dlp remote components",
+    key: "radix",
+    name: "Radix UI Primitives",
     license: "MIT",
-    url: "https://github.com/denoland/deno",
+    url: "https://github.com/radix-ui/primitives",
+    copyright: "Copyright (c) 2022 WorkOS",
+    licenseText: MIT,
   },
+  { key: "i18next", name: "i18next, react-i18next", version: "27 / 18", license: "MIT", url: "https://github.com/i18next/react-i18next", licenseText: MIT },
   {
-    name: "OpenCV",
-    version: "4.12",
-    description: "Computer vision and image processing",
-    license: "Apache 2.0",
-    url: "https://github.com/opencv/opencv",
-  },
-  {
-    name: "Pillow",
-    version: "11.3",
-    description: "Image rendering for hook text overlays",
-    license: "MIT-CMU",
-    url: "https://github.com/python-pillow/Pillow",
-  },
-  {
-    name: "Tauri",
-    version: "2",
-    description: "Desktop application framework",
-    license: "MIT / Apache 2.0",
-    url: "https://github.com/tauri-apps/tauri",
-  },
-  {
-    name: "React",
-    version: "19",
-    description: "User interface library",
-    license: "MIT",
-    url: "https://github.com/facebook/react",
-  },
-  {
-    name: "i18next and react-i18next",
-    version: "27 / 18",
-    description: "Indonesian and English translations of the interface",
-    license: "MIT",
-    url: "https://github.com/i18next/react-i18next",
-  },
-  {
+    key: "jakarta",
     name: "Plus Jakarta Sans",
     version: "5.3 (Fontsource)",
-    description: "The interface typeface",
     license: "SIL Open Font License 1.1",
     url: "https://github.com/tokotype/PlusJakartaSans",
     copyright: "Copyright 2020 The Plus Jakarta Sans Project Authors",
+    licenseText: OFL,
   },
+  { key: "openai", name: "OpenAI Python SDK", version: "2.9", license: "Apache 2.0", url: "https://github.com/openai/openai-python", licenseText: APACHE },
   {
-    name: "OpenAI Python SDK",
-    version: "2.9",
-    description: "AI API client for chat completions and model listing",
-    license: "Apache 2.0",
-    url: "https://github.com/openai/openai-python",
-  },
-  {
+    key: "antislop",
     name: "antislop",
-    description: "Design and writing rules followed while building the interface",
     license: "MIT",
     url: "https://github.com/miqdadbadjuber/anti-slop",
     copyright: "Copyright (c) 2026 Miqdad Badjuber",
+    licenseText: MIT,
   },
 ];
 
+const focusRing =
+  "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]";
+
+function openLink(url: string) {
+  openUrl(url).catch(console.error);
+}
+
 export function CreditsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
-  const handleLink = (url: string) => {
-    openUrl(url).catch(console.error);
-  };
+  return (
+    <div className="mx-auto max-w-2xl py-4">
+      <button
+        type="button"
+        onClick={() => navigate("/settings")}
+        className={`-ml-2 inline-flex min-h-10 items-center gap-1.5 rounded-full px-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] ${focusRing}`}
+      >
+        <ArrowLeft aria-hidden className="h-4 w-4" />
+        {t("creditsPage.back")}
+      </button>
+
+      <h1 className="mt-6 text-2xl font-bold text-[var(--color-text-primary)]">{t("creditsPage.title")}</h1>
+      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{t("creditsPage.subtitle")}</p>
+      <p className="mt-3 text-xs text-[var(--color-text-muted)]">{t("creditsPage.version", { version: APP_VERSION })}</p>
+
+      <section className="mt-9">
+        <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{t("creditsPage.listTitle")}</h2>
+        <p className="mt-1 text-sm text-[var(--color-text-muted)]">{t("creditsPage.listBody")}</p>
+        <ul className="mt-4 divide-y divide-[var(--color-border)] rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-primary)]">
+          {LIBRARIES.map((lib) => (
+            <LibraryRow key={lib.key} lib={lib} />
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+function LibraryRow({ lib }: { lib: LibraryInfo }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const panelId = `license-${lib.key}`;
 
   return (
-    <div className="space-y-5 max-w-2xl">
-      <Button
-        variant="ghost"
-        onClick={() => navigate("/settings")}
-        className="gap-2 text-[var(--color-text-secondary)]"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Settings
-      </Button>
-
-      <div>
-        <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
-          Open Source Credits
-        </h1>
-        <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          Cuplik is built with the following open source libraries. We are grateful to
-          their authors and contributors.
-        </p>
+    <li className="px-5 py-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+            {lib.name}
+            {lib.version && (
+              <span className="ml-2 font-normal text-[var(--color-text-muted)]">{lib.version}</span>
+            )}
+          </p>
+          <p className="mt-0.5 text-sm text-[var(--color-text-secondary)]">{t(`creditsPage.libs.${lib.key}`)}</p>
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            {lib.license}
+            {lib.copyright && <> · {lib.copyright}</>}
+          </p>
+          {lib.key === "ffmpeg" && (
+            <p className="mt-1 text-xs text-[var(--color-text-muted)] leading-relaxed">
+              <Trans
+                i18nKey="creditsPage.ffmpegNote"
+                components={{
+                  src: <InlineLink url="https://ffmpeg.org" />,
+                  build: <InlineLink url="https://www.gyan.dev/ffmpeg/builds/" />,
+                }}
+              />
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => openLink(lib.url)}
+          aria-label={t("creditsPage.sourceLabel", { name: lib.name })}
+          className={`-mr-2 inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 text-sm font-medium text-[var(--color-accent)] hover:underline ${focusRing}`}
+        >
+          {t("creditsPage.source")}
+          <ExternalLink aria-hidden className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      <Card className="bg-[var(--color-bg-secondary)]/50">
-        <CardContent className="pt-5">
-          <div className="flex items-center gap-2 text-[var(--color-text-secondary)]">
-            <Info className="w-4 h-4" />
-            <p className="text-sm font-medium">Version {APP_VERSION}</p>
-          </div>
-          <p className="text-xs text-[var(--color-text-muted)] mt-1">
-            Cuplik, built with React 19, Tauri 2, and Python 3.13.
-          </p>
-        </CardContent>
-      </Card>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((o) => !o)}
+        className={`-ml-1 mt-1 inline-flex min-h-9 items-center rounded-[var(--radius-sm)] px-1 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] ${focusRing}`}
+      >
+        {open ? t("creditsPage.hideLicense") : t("creditsPage.showLicense")}
+      </button>
+      {open && (
+        <pre
+          id={panelId}
+          lang="en"
+          className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg-input)] p-3 font-mono text-xs text-[var(--color-text-secondary)] leading-relaxed"
+        >
+          {lib.copyright ? `${lib.copyright}\n\n${lib.licenseText}` : lib.licenseText}
+        </pre>
+      )}
+    </li>
+  );
+}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Libraries & Tools</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-0 divide-y divide-[var(--color-border-light)]">
-          {LIBRARIES.map((lib) => (
-            <div key={lib.name} className="py-3 first:pt-0 last:pb-0">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                      {lib.name}
-                    </p>
-                    {lib.version && (
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-secondary)] text-[var(--color-accent)]">
-                        v{lib.version}
-                      </span>
-                    )}
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)]">
-                      {lib.license}
-                    </span>
-                  </div>
-                  <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
-                    {lib.description}
-                  </p>
-                  {lib.copyright && (
-                    <p className="text-xs text-[var(--color-text-muted)] mt-0.5">{lib.copyright}</p>
-                  )}
-                  {lib.note && (
-                    <p className="text-xs text-[var(--color-text-muted)] mt-1 italic">
-                      {lib.note}
-                    </p>
-                  )}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleLink(lib.url)}
-                  className="h-7 px-2 gap-1 text-xs text-[var(--color-accent)] shrink-0"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  Source
-                </Button>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card className="bg-[var(--color-bg-secondary)]/50">
-        <CardContent className="pt-5">
-          <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-            This software uses FFmpeg, which is licensed under the GPL v3 license. FFmpeg is
-            invoked as a separate process and its source code is available at{" "}
-            <button
-              onClick={() => handleLink("https://ffmpeg.org")}
-              className="text-[var(--color-accent)] underline"
-            >
-              ffmpeg.org
-            </button>
-            . The FFmpeg build bundled with this application is provided by{" "}
-            <button
-              onClick={() => handleLink("https://www.gyan.dev/ffmpeg/builds/")}
-              className="text-[var(--color-accent)] underline"
-            >
-              gyan.dev
-            </button>
-            .
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+/** Trans fills in the link text from the translation. */
+function InlineLink({ url, children }: { url: string; children?: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={() => openLink(url)}
+      className={`rounded-sm text-[var(--color-accent)] underline underline-offset-2 ${focusRing}`}
+    >
+      {children}
+    </button>
   );
 }

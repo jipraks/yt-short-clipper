@@ -100,3 +100,30 @@
     background: var(--color-text-muted);
   }
 }
+
+/* Overlay motion. Used only for modals that block the screen, so their arrival
+   and departure read as a transition instead of a jump. Applied through
+   motion-safe: variants, so "reduce motion" turns them off. */
+@keyframes cuplik-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes cuplik-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes cuplik-panel-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes cuplik-panel-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+
+/* A soft ring that pulses outward a few times to point at the next thing to
+   check. Used once per load, through motion-safe:, never as decoration. */
+@keyframes cuplik-attention {
+  0% { box-shadow: 0 0 0 0 rgba(234, 112, 96, 0.55); }
+  100% { box-shadow: 0 0 0 12px rgba(234, 112, 96, 0); }
+}

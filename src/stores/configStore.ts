@@ -31,6 +31,8 @@ interface ConfigState {
   setClipPadding: (clipPadding: ClipPaddingSettings) => Promise<void>;
   setRepliz: (repliz: ReplizSettings) => Promise<void>;
   setLanguage: (language: AppLanguage) => Promise<void>;
+  /** Switch language later, from Settings. Unlike setLanguage it leaves the Terms acceptance as it was. */
+  changeLanguage: (language: AppLanguage) => Promise<void>;
   completeOnboarding: () => Promise<void>;
 }
 
@@ -106,6 +108,13 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       language,
       termsAcceptedAt: new Date().toISOString(),
     });
+    rememberLanguage(language);
+    await i18n.changeLanguage(language);
+    set({ config: saved });
+  },
+
+  changeLanguage: async (language) => {
+    const saved = await saveAppConfig({ ...get().config, language });
     rememberLanguage(language);
     await i18n.changeLanguage(language);
     set({ config: saved });

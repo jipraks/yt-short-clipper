@@ -237,13 +237,55 @@ fn cookies_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
+    /// The session folder's name (e.g. 20261126_123301): stable, and what
+    /// clips point back to.
+    id: String,
     session_dir: String,
     url: String,
     title: String,
     channel: String,
     highlight_count: usize,
+    /// Clips on disk with a finished video, counted from the folder rather
+    /// than trusted from session_data.json.
+    rendered_count: usize,
     status: String,
     created_at: String,
+}
+
+/// One finished clip, read from clips/clip_NNN/data.json next to its video.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipSummary {
+    session_id: String,
+    session_dir: String,
+    session_title: String,
+    channel: String,
+    url: String,
+    highlight_index: i64,
+    clip_path: String,
+    title: String,
+    hook_text: String,
+    description: String,
+    start_time: String,
+    end_time: String,
+    duration_seconds: f64,
+    reframe_mode: String,
+    processed_at: String,
+}
+
+/// Finished clip folders in a session, oldest highlight first.
+fn finished_clip_dirs(session_path: &std::path::Path) -> Vec<PathBuf> {
+    let clips = session_path.join("clips");
+    let Ok(entries) = fs::read_dir(&clips) else {
+        return vec![];
+    };
+    let mut dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && p.join("master.mp4").exists())
+        .collect();
+    dirs.sort();
+    dirs
 }
 
 fn sessions_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -283,6 +325,8 @@ pub fn list_sessions(app: tauri::AppHandle) -> Result<Vec<SessionSummary>, Strin
         let highlights = value.get("highlights").and_then(|h| h.as_array());
 
         summaries.push(SessionSummary {
+            id: entry.file_name().to_string_lossy().to_string(),
+            rendered_count: finished_clip_dirs(&path).len(),
             session_dir: value
                 .get("session_dir")
                 .and_then(|v| v.as_str())
@@ -321,6 +365,80 @@ pub fn list_sessions(app: tauri::AppHandle) -> Result<Vec<SessionSummary>, Strin
     summaries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     Ok(summaries)
+}
+
+/// Every finished clip across all sessions, newest first, each pointing back
+/// to the session it came from.
+#[tauri::command]
+pub fn list_clips(app: tauri::AppHandle) -> Result<Vec<ClipSummary>, String> {
+    let dir = sessions_dir(&app)?;
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+    let str_of = |v: &serde_json::Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
+
+    let mut clips: Vec<ClipSummary> = Vec::new();
+    let entries = fs::read_dir(&dir).map_err(|e| format!("Failed to read sessions dir: {e}"))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let clip_dirs = finished_clip_dirs(&path);
+        if clip_dirs.is_empty() {
+            continue;
+        }
+        let session: serde_json::Value = fs::read_to_string(path.join("session_data.json"))
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_default();
+        let video_info = session.get("video_info").cloned().unwrap_or_default();
+        let session_id = entry.file_name().to_string_lossy().to_string();
+
+        for clip_dir in clip_dirs {
+            let data: serde_json::Value = fs::read_to_string(clip_dir.join("data.json"))
+                .ok()
+                .and_then(|c| serde_json::from_str(&c).ok())
+                .unwrap_or_default();
+            // Older clips have no data.json; the folder name still gives the index.
+            let index_from_name = clip_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.strip_prefix("clip_"))
+                .and_then(|n| n.parse::<i64>().ok())
+                .unwrap_or(-1);
+            let description = {
+                let d = str_of(&data, "youtube_description");
+                if d.is_empty() { str_of(&data, "description") } else { d }
+            };
+            clips.push(ClipSummary {
+                session_id: session_id.clone(),
+                session_dir: path.to_string_lossy().to_string(),
+                session_title: video_info.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled").to_string(),
+                channel: str_of(&video_info, "channel"),
+                url: str_of(&session, "url"),
+                highlight_index: data.get("highlight_index").and_then(|v| v.as_i64()).unwrap_or(index_from_name),
+                clip_path: clip_dir.join("master.mp4").to_string_lossy().to_string(),
+                title: str_of(&data, "title"),
+                hook_text: str_of(&data, "hook_text"),
+                description,
+                start_time: str_of(&data, "start_time"),
+                end_time: str_of(&data, "end_time"),
+                duration_seconds: data.get("duration_seconds").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                reframe_mode: str_of(&data, "reframe_mode"),
+                processed_at: str_of(&data, "processed_at"),
+            });
+        }
+    }
+
+    // Newest first; ISO timestamps sort as strings. Ties keep highlight order.
+    clips.sort_by(|a, b| {
+        b.processed_at
+            .cmp(&a.processed_at)
+            .then_with(|| b.session_id.cmp(&a.session_id))
+            .then_with(|| a.highlight_index.cmp(&b.highlight_index))
+    });
+    Ok(clips)
 }
 
 #[tauri::command]

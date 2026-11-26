@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Check, Copy, Mail, Megaphone, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Check, Copy, Mail } from "lucide-react";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Modal } from "@/components/ui/modal";
 
 export const ADS_EMAIL = "ads@ytclip.org";
 
@@ -11,89 +12,52 @@ interface AdvertiseDialogProps {
   onClose: () => void;
 }
 
+/** How to get a link into the Help menu: one address, copy it or open a draft. */
 export function AdvertiseDialog({ onClose }: AdvertiseDialogProps) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   const copyEmail = async () => {
     try {
       await navigator.clipboard.writeText(ADS_EMAIL);
       setCopied(true);
-      toast.success("Email address copied");
+      toast.success(t("advertise.copyDone"));
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast.error("Could not copy the address");
+      toast.error(t("advertise.copyFailed"));
     }
   };
 
   // Opens the user's mail client with a draft. It composes; it never sends.
   const composeEmail = () => {
-    const subject = encodeURIComponent("Link placement in Cuplik");
+    const subject = encodeURIComponent(t("advertise.subject"));
     openUrl(`mailto:${ADS_EMAIL}?subject=${subject}`).catch(() => {
-      toast.error(`No mail app found — email us at ${ADS_EMAIL}`);
+      toast.error(t("advertise.noMailApp", { email: ADS_EMAIL }));
     });
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <Card className="max-w-md w-full">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Megaphone className="w-5 h-5 text-[var(--color-accent)]" />
-              Put your link here
-            </CardTitle>
-            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
-              <X className="w-4 h-4" />
+    <Modal title={t("advertise.title")} closeLabel={t("advertise.close")} onClose={onClose}>
+      {() => (
+        <>
+          <p className="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">{t("advertise.body")}</p>
+
+          <p className="mt-5 mb-1.5 text-xs font-medium text-[var(--color-text-muted)]">{t("advertise.emailLabel")}</p>
+          <div className="flex items-center justify-between gap-2 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg-input)] py-1.5 pl-4 pr-1.5">
+            <span className="truncate text-base font-semibold text-[var(--color-text-primary)]">{ADS_EMAIL}</span>
+            <Button variant="ghost" onClick={() => void copyEmail()} className="h-9 shrink-0 gap-1.5 px-3">
+              {copied ? <Check aria-hidden className="h-4 w-4 text-[var(--color-success)]" /> : <Copy aria-hidden className="h-4 w-4" />}
+              {copied ? t("advertise.copied") : t("advertise.copy")}
             </Button>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-[var(--color-text-secondary)]">
-            The links in the sidebar are open for placement. If you have a product,
-            service, or community that creators here would find useful, we would like to
-            hear about it.
-          </p>
+          <p className="mt-2 text-xs text-[var(--color-text-muted)] leading-relaxed">{t("advertise.what")}</p>
 
-          <div className="space-y-1.5">
-            <p className="text-xs text-[var(--color-text-muted)]">
-              Send us the details by email:
-            </p>
-            <div className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)]">
-              <span className="font-mono text-sm text-[var(--color-text-primary)] truncate">
-                {ADS_EMAIL}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={copyEmail}
-                className="h-7 gap-1.5 text-xs shrink-0"
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-[var(--color-success)]" />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    Copy
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-
-          <p className="text-xs text-[var(--color-text-muted)]">
-            Tell us what you are offering, the link you want listed, and how long you would
-            like it up. We reply to every message.
-          </p>
-
-          <Button onClick={composeEmail} className="w-full gap-2">
-            <Mail className="w-4 h-4" />
-            Email {ADS_EMAIL}
+          <Button onClick={composeEmail} className="mt-6 h-11 w-full gap-2">
+            <Mail aria-hidden className="h-4 w-4" />
+            {t("advertise.compose")}
           </Button>
-        </CardContent>
-      </Card>
-    </div>
+        </>
+      )}
+    </Modal>
   );
 }
