@@ -16,13 +16,12 @@ type Dialog = null | "backup" | "restore" | "topup";
  * stands, gets the Account Key saved, and offers a first top-up, which can be
  * skipped.
  */
-export function AiStepPage({ onFinish }: { onFinish: () => Promise<void> }) {
+export function AiStepPage() {
   const { t } = useTranslation();
   const { ready, activated, account, busy, appInfo, error, activate, refresh } = useAccountStore();
   const backedUp = useConfigStore((s) => s.config.account.keyBackupConfirmedAt !== null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [retrying, setRetrying] = useState(false);
-  const [finishing, setFinishing] = useState<"idle" | "saving" | "error">("idle");
 
   const supported = inappSupported(appInfo);
   const usable = supported && activated && !account?.blocked;
@@ -37,15 +36,6 @@ export function AiStepPage({ onFinish }: { onFinish: () => Promise<void> }) {
       // The inactive notice stays up; it already says what to check.
     } finally {
       setRetrying(false);
-    }
-  };
-
-  const finish = async () => {
-    setFinishing("saving");
-    try {
-      await onFinish();
-    } catch {
-      setFinishing("error");
     }
   };
 
@@ -105,7 +95,7 @@ export function AiStepPage({ onFinish }: { onFinish: () => Promise<void> }) {
             <p className="text-sm text-[var(--color-success)]">{t("onboardingAi.steps.backup.done")}</p>
           )}
           <Button
-            variant={backedUp ? "outline" : "default"}
+            variant="outline"
             disabled={!usable}
             onClick={() => setDialog("backup")}
             className="h-11 px-5"
@@ -116,7 +106,7 @@ export function AiStepPage({ onFinish }: { onFinish: () => Promise<void> }) {
 
         <Step n={2} title={t("onboardingAi.steps.topup.title")} body={t("onboardingAi.steps.topup.body")}>
           <Button
-            variant={backedUp ? "default" : "outline"}
+            variant="outline"
             disabled={!usable}
             onClick={() => setDialog("topup")}
             className="h-11 px-5"
@@ -138,24 +128,9 @@ export function AiStepPage({ onFinish }: { onFinish: () => Promise<void> }) {
         </button>
       </p>
 
-      <div className="mt-8 border-t border-[var(--color-border-light)] pt-6">
-        {finishing === "error" && (
-          <p role="alert" className="mb-3 text-sm text-[var(--color-error)]">
-            {t("onboarding.finishFailed")}
-          </p>
-        )}
-        <Button
-          size="lg"
-          disabled={finishing === "saving"}
-          onClick={() => void finish()}
-          className="h-12 px-6 text-base font-semibold"
-        >
-          {finishing === "saving" ? t("onboarding.finishing") : t("onboarding.finish")}
-        </Button>
-        {usable && empty && (
-          <p className="mt-3 text-sm text-[var(--color-text-muted)] leading-relaxed">{t("onboardingAi.emptyHint")}</p>
-        )}
-      </div>
+      {usable && empty && (
+        <p className="mt-4 text-sm text-[var(--color-text-muted)] leading-relaxed">{t("onboardingAi.emptyHint")}</p>
+      )}
 
       {dialog === "backup" && <AccountKeyDialog mode="export" onClose={closeDialog} />}
       {dialog === "restore" && <AccountKeyDialog mode="restore" onClose={closeDialog} />}

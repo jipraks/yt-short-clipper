@@ -25,7 +25,7 @@ type UploadState =
  * First-launch setup, step: connect YouTube. Walks a new user through getting
  * a cookies.txt out of Chrome and checks the file before it is saved.
  */
-export function CookiesStepPage({ onNext, isLast }: { onNext: () => void; isLast: boolean }) {
+export function CookiesStepPage({ onReadyChange }: { onReadyChange: (ready: boolean) => void }) {
   const { t } = useTranslation();
   const setCookiesStatus = useCookiesStore((s) => s.setCookiesStatus);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -41,6 +41,7 @@ export function CookiesStepPage({ onNext, isLast }: { onNext: () => void; isLast
   }, []);
 
   const connected = upload.kind === "valid" || upload.kind === "alreadyValid";
+  useEffect(() => onReadyChange(connected), [connected, onReadyChange]);
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -126,7 +127,7 @@ export function CookiesStepPage({ onNext, isLast }: { onNext: () => void; isLast
 
           <input ref={fileRef} type="file" accept=".txt,text/plain" onChange={onFile} className="sr-only" tabIndex={-1} />
           <Button
-            variant={connected ? "outline" : "default"}
+            variant="outline"
             disabled={upload.kind === "checking"}
             onClick={() => fileRef.current?.click()}
             className="h-11 px-5"
@@ -151,26 +152,12 @@ export function CookiesStepPage({ onNext, isLast }: { onNext: () => void; isLast
               {upload.message}
             </p>
           )}
+          {!connected && (
+            <p className="text-sm text-[var(--color-text-muted)] leading-relaxed">{t("onboardingCookies.laterHint")}</p>
+          )}
         </Step>
       </ol>
 
-      <div className="mt-10 border-t border-[var(--color-border-light)] pt-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <Button size="lg" disabled={!connected} onClick={onNext} className="h-12 px-6 text-base font-semibold">
-            {isLast ? t("onboarding.finish") : t("onboardingCookies.next")}
-          </Button>
-          {!connected && (
-            <Button variant="ghost" size="lg" onClick={onNext} className="h-12">
-              {t("onboardingCookies.later")}
-            </Button>
-          )}
-        </div>
-        {!connected && (
-          <p className="mt-3 text-sm text-[var(--color-text-muted)] leading-relaxed">
-            {t("onboardingCookies.laterHint")}
-          </p>
-        )}
-      </div>
     </>
   );
 }
