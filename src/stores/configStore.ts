@@ -11,7 +11,9 @@ import {
   type HookStyleSettings,
   type ClipPaddingSettings,
   type ReplizSettings,
+  type AppLanguage,
 } from "@/hooks/appConfig";
+import i18n from "@/i18n";
 
 interface ConfigState {
   config: AppConfig;
@@ -28,6 +30,7 @@ interface ConfigState {
   setHookStyle: (hookStyle: HookStyleSettings) => Promise<void>;
   setClipPadding: (clipPadding: ClipPaddingSettings) => Promise<void>;
   setRepliz: (repliz: ReplizSettings) => Promise<void>;
+  setLanguage: (language: AppLanguage) => Promise<void>;
 }
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
@@ -37,6 +40,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   load: async () => {
     try {
       const config = await loadAppConfig();
+      if (config.language) await i18n.changeLanguage(config.language);
       set({ config, loaded: true });
     } catch {
       set({ config: DEFAULT_CONFIG, loaded: true });
@@ -86,6 +90,12 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       account: { keyBackupConfirmedAt: new Date().toISOString() },
     };
     set({ config: await saveAppConfig(next) });
+  },
+
+  setLanguage: async (language) => {
+    await i18n.changeLanguage(language);
+    const saved = await saveAppConfig({ ...get().config, language });
+    set({ config: saved });
   },
 
   setGpuAcceleration: async (enabled) => {

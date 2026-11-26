@@ -11,15 +11,17 @@ interface LibraryInfo {
   description: string;
   license: string;
   url: string;
+  /** Copyright line, required for MIT-licensed code copied into this app. */
+  copyright?: string;
   note?: string;
 }
 
 const LIBRARIES: LibraryInfo[] = [
   {
     name: "FFmpeg",
-    version: "latest master (BtbN GPL)",
+    version: "8.0.1 (gyan.dev full build)",
     description: "Audio/video processing, encoding, and format conversion",
-    license: "GPL v2+",
+    license: "GPL v3",
     url: "https://ffmpeg.org",
     note: "FFmpeg is used as a separate process. Source code available at the link above.",
   },
@@ -32,35 +34,35 @@ const LIBRARIES: LibraryInfo[] = [
   },
   {
     name: "MediaPipe",
-    version: "0.10+",
+    version: "0.10.31",
     description: "Face detection and landmark tracking for portrait conversion",
     license: "Apache 2.0",
     url: "https://github.com/google-ai-edge/mediapipe",
   },
   {
     name: "Deno",
-    version: "latest",
+    version: "2.8.1",
     description: "JavaScript runtime for yt-dlp remote components",
     license: "MIT",
     url: "https://github.com/denoland/deno",
   },
   {
     name: "OpenCV",
-    version: "4.8+",
+    version: "4.12",
     description: "Computer vision and image processing",
     license: "Apache 2.0",
     url: "https://github.com/opencv/opencv",
   },
   {
     name: "Pillow",
-    version: "10+",
+    version: "11.3",
     description: "Image rendering for hook text overlays",
-    license: "HPND (open source)",
+    license: "MIT-CMU",
     url: "https://github.com/python-pillow/Pillow",
   },
   {
     name: "Tauri",
-    version: "v2",
+    version: "2",
     description: "Desktop application framework",
     license: "MIT / Apache 2.0",
     url: "https://github.com/tauri-apps/tauri",
@@ -73,11 +75,33 @@ const LIBRARIES: LibraryInfo[] = [
     url: "https://github.com/facebook/react",
   },
   {
+    name: "i18next and react-i18next",
+    version: "27 / 18",
+    description: "Indonesian and English translations of the interface",
+    license: "MIT",
+    url: "https://github.com/i18next/react-i18next",
+  },
+  {
+    name: "Plus Jakarta Sans",
+    version: "5.3 (Fontsource)",
+    description: "The interface typeface",
+    license: "SIL Open Font License 1.1",
+    url: "https://github.com/tokotype/PlusJakartaSans",
+    copyright: "Copyright 2020 The Plus Jakarta Sans Project Authors",
+  },
+  {
     name: "OpenAI Python SDK",
-    version: "1.0+",
+    version: "2.9",
     description: "AI API client for chat completions and model listing",
     license: "Apache 2.0",
     url: "https://github.com/openai/openai-python",
+  },
+  {
+    name: "antislop",
+    description: "Design and writing rules followed while building the interface",
+    license: "MIT",
+    url: "https://github.com/miqdadbadjuber/anti-slop",
+    copyright: "Copyright (c) 2026 Miqdad Badjuber",
   },
 ];
 
@@ -116,7 +140,7 @@ export function CreditsPage() {
             <p className="text-sm font-medium">Version {APP_VERSION}</p>
           </div>
           <p className="text-xs text-[var(--color-text-muted)] mt-1">
-            YT Short Clipper v2 — built with React 19, Tauri v2, and Python 3.13.
+            YT Short Clipper v2, built with React 19, Tauri 2, and Python 3.13.
           </p>
         </CardContent>
       </Card>
@@ -146,6 +170,9 @@ export function CreditsPage() {
                   <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
                     {lib.description}
                   </p>
+                  {lib.copyright && (
+                    <p className="text-xs text-[var(--color-text-muted)] mt-0.5">{lib.copyright}</p>
+                  )}
                   {lib.note && (
                     <p className="text-xs text-[var(--color-text-muted)] mt-1 italic">
                       {lib.note}
@@ -170,7 +197,7 @@ export function CreditsPage() {
       <Card className="bg-[var(--color-bg-secondary)]/50">
         <CardContent className="pt-5">
           <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-            This software uses FFmpeg, which is licensed under the GPL v2+ license. FFmpeg is
+            This software uses FFmpeg, which is licensed under the GPL v3 license. FFmpeg is
             invoked as a separate process and its source code is available at{" "}
             <button
               onClick={() => handleLink("https://ffmpeg.org")}
@@ -180,10 +207,10 @@ export function CreditsPage() {
             </button>
             . The FFmpeg build bundled with this application is provided by{" "}
             <button
-              onClick={() => handleLink("https://github.com/BtbN/FFmpeg-Builds")}
+              onClick={() => handleLink("https://www.gyan.dev/ffmpeg/builds/")}
               className="text-[var(--color-accent)] underline"
             >
-              BtbN/FFmpeg-Builds
+              gyan.dev
             </button>
             .
           </p>

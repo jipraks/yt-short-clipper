@@ -110,7 +110,11 @@ export interface AppConfig {
   repliz: ReplizSettings;
   /** Stable per-install UUID, generated on first run. Persists across updates. */
   installationId: string;
+  /** UI language the user picked on first launch; null until they pick one. */
+  language: AppLanguage | null;
 }
+
+export type AppLanguage = "id" | "en";
 
 export const DEFAULT_CONFIG: AppConfig = {
   ai: {
@@ -168,6 +172,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     secretKey: "",
   },
   installationId: "",
+  language: null,
 };
 
 export async function loadAppConfig(): Promise<AppConfig> {
@@ -318,5 +323,9 @@ function mergeConfig(config: Partial<AppConfig> | undefined): AppConfig {
       ...config?.repliz,
     },
     installationId: config?.installationId ?? DEFAULT_CONFIG.installationId,
+    language:
+      config?.language === "id" || config?.language === "en"
+        ? config.language
+        : DEFAULT_CONFIG.language,
   };
 }
