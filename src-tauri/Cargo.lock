@@ -5157,7 +5157,7 @@ dependencies = [
 
 [[package]]
 name = "yt-short-clipper-v2"
-version = "2.0.7"
+version = "2.0.8"
 dependencies = [
  "keyring",
  "reqwest 0.12.28",

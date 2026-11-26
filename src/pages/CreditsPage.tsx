@@ -25,7 +25,7 @@ const LIBRARIES: LibraryInfo[] = [
   },
   {
     name: "yt-dlp",
-    version: "2026.08.19",
+    version: "2026.11.23",
     description: "YouTube video and subtitle downloading",
     license: "Unlicense (Public Domain)",
     url: "https://github.com/yt-dlp/yt-dlp",

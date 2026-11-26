@@ -5,7 +5,7 @@
 openai>=1.0.0
 
 # YouTube download
-yt-dlp>=2026.8.19
+yt-dlp>=2026.11.23
 
 # Video / image processing
 opencv-python>=4.8.0
