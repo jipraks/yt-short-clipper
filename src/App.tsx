@@ -22,6 +22,7 @@ import { OnboardingFlow } from "@/pages/onboarding/OnboardingFlow";
 import { UpdateDialog } from "@/components/UpdateDialog";
 import { NotificationDialog } from "@/components/NotificationDialog";
 import { checkForUpdate, type LatestVersionResponse } from "@/hooks/versionCheck";
+import { IS_STORE_BUILD } from "@/config/distribution";
 import { checkNotification, type NotificationResponse } from "@/hooks/notificationCheck";
 import { useAppStore } from "@/stores/appStore";
 import { useConfigStore } from "@/stores/configStore";
@@ -44,12 +45,15 @@ function App() {
     void loadConfig();
     void initAccount();
 
-    checkForUpdate().then((result) => {
-      if (result) {
-        setUpdate(result);
-        setStoreUpdate(result);
-      }
-    });
+    // The Store updates its own installs; no self-update prompt there.
+    if (!IS_STORE_BUILD) {
+      checkForUpdate().then((result) => {
+        if (result) {
+          setUpdate(result);
+          setStoreUpdate(result);
+        }
+      });
+    }
 
     checkNotification().then((result) => {
       if (result) setNotification(result);

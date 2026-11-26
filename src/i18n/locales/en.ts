@@ -322,7 +322,7 @@ export const en = {
   },
   library: {
     title: "Projects",
-    subtitle: "One YouTube video, one project. Open a project to pick or edit highlights and render more clips.",
+    subtitle: "One video, one project. Open a project to pick or edit highlights and render more clips.",
     refresh: "Refresh",
     loading: "Loading projects…",
     loadFailed: "Projects could not be loaded.",

@@ -54,3 +54,6 @@ desktop.ini
 
 # ---- Legacy v1 (kept out of repo; lives at github.com/jipraks/yt-short-clipper) ----
 yt-short-clipper-v1/
+
+# ---- Microsoft Store images (large, regenerated) ----
+store/screenshots/

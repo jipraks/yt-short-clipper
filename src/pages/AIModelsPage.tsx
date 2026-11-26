@@ -1,3 +1,4 @@
+import { IS_STORE_BUILD } from "@/config/distribution";
 import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Check, Copy, ExternalLink, Loader2, RefreshCw } from "lucide-react";
@@ -210,7 +211,7 @@ function InappPanel() {
               ? t("aiPage.unsupported.body", { version: appInfo.latestVersion })
               : t("aiPage.unsupported.bodyNoVersion")}
           </p>
-          {appInfo?.downloadUrl && (
+          {appInfo?.downloadUrl && !IS_STORE_BUILD && (
             <Button className="mt-4 gap-2" onClick={() => openUrl(appInfo.downloadUrl)}>
               {t("aiPage.unsupported.download")}
               <ExternalLink aria-hidden className="h-4 w-4" />

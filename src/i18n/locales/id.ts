@@ -316,7 +316,7 @@ export const id: Messages = {
   },
   library: {
     title: "Proyek",
-    subtitle: "Satu video YouTube, satu proyek. Buka proyek untuk memilih atau mengedit highlight lalu render klip lagi.",
+    subtitle: "Satu video, satu proyek. Buka proyek untuk memilih atau mengedit highlight lalu render klip lagi.",
     refresh: "Muat ulang",
     loading: "Memuat proyek…",
     loadFailed: "Proyek tidak bisa dimuat.",

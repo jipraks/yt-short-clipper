@@ -17,7 +17,8 @@
     "deps": "powershell -ExecutionPolicy Bypass -File scripts/fetch-deps.ps1",
     "package": "powershell -ExecutionPolicy Bypass -File scripts/package-portable.ps1",
     "release": "npm run build:sidecar && npm run build && npm run tauri build && npm run package",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:msix": "powershell -ExecutionPolicy Bypass -File scripts/build-msix.ps1"
   },
   "dependencies": {
     "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
