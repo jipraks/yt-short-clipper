@@ -18,6 +18,8 @@ pub fn run() {
             commands::list_sessions,
             commands::load_session,
             commands::delete_session,
+            commands::save_session_highlights,
+            commands::download_proxy,
             commands::save_watermark,
             commands::read_watermark,
             commands::list_hook_fonts,

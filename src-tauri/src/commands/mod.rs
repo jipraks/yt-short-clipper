@@ -333,6 +333,38 @@ pub fn load_session(session_dir: String) -> Result<serde_json::Value, String> {
     serde_json::from_str(&content).map_err(|e| format!("Failed to parse session: {e}"))
 }
 
+/// Replace the highlights in a session's session_data.json, keeping every other
+/// field. The highlight editor uses this to persist trimmed start/end times.
+#[tauri::command]
+pub fn save_session_highlights(
+    session_dir: String,
+    highlights: serde_json::Value,
+) -> Result<(), String> {
+    if !highlights.is_array() {
+        return Err("highlights must be an array".to_string());
+    }
+    let data_file = PathBuf::from(&session_dir).join("session_data.json");
+    if !data_file.exists() {
+        return Err("Session data not found".to_string());
+    }
+    let content =
+        fs::read_to_string(&data_file).map_err(|e| format!("Failed to read session: {e}"))?;
+    let mut data: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse session: {e}"))?;
+    let obj = data
+        .as_object_mut()
+        .ok_or("Session data is not an object")?;
+    obj.insert("highlights".to_string(), highlights);
+
+    let serialized = serde_json::to_string_pretty(&data)
+        .map_err(|e| format!("Failed to serialize session: {e}"))?;
+    // Write to a sibling temp file first so a crash mid-write cannot truncate
+    // the session.
+    let tmp_file = data_file.with_extension("json.tmp");
+    fs::write(&tmp_file, serialized).map_err(|e| format!("Failed to write session: {e}"))?;
+    fs::rename(&tmp_file, &data_file).map_err(|e| format!("Failed to save session: {e}"))
+}
+
 #[tauri::command]
 pub fn delete_session(session_dir: String) -> Result<(), String> {
     let path = PathBuf::from(&session_dir);
@@ -973,6 +1005,141 @@ fn call_sidecar_streaming_process(
     }
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(tag = "type")]
+pub enum ProxyEvent {
+    Log { message: String },
+    Progress { percent: f64 },
+}
+
+/// Download a low-resolution copy of the whole source video into the session
+/// folder, so the highlight editor can play and scrub it before anything is
+/// rendered. Returns the proxy's absolute path. Reuses an existing proxy.
+#[tauri::command]
+pub async fn download_proxy(
+    app: tauri::AppHandle,
+    url: String,
+    session_dir: String,
+    on_event: Channel<ProxyEvent>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !PathBuf::from(&session_dir).join("session_data.json").exists() {
+            return Err("Not a session directory".to_string());
+        }
+
+        let cookies_path = cookies_dir(&app)?.join("cookies.txt");
+        let cookies_status = read_cookies_status_for_path(cookies_path.clone())?;
+        if !cookies_status.valid {
+            return Err(cookies_status
+                .error
+                .unwrap_or_else(|| "Invalid cookies".to_string()));
+        }
+
+        let payload = serde_json::json!({
+            "url": url,
+            "session_dir": session_dir,
+            "cookies_path": cookies_path.to_string_lossy(),
+        });
+
+        let result = call_sidecar_streaming_proxy(&app, "download_proxy", payload, &on_event)?;
+        result
+            .get("path")
+            .and_then(|p| p.as_str())
+            .map(|p| p.to_string())
+            .ok_or_else(|| "Sidecar did not return a proxy path".to_string())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
+}
+
+fn call_sidecar_streaming_proxy(
+    app: &tauri::AppHandle,
+    command: &str,
+    payload: serde_json::Value,
+    on_event: &Channel<ProxyEvent>,
+) -> Result<serde_json::Value, String> {
+    let request = serde_json::json!({
+        "id": "tauri-request",
+        "command": command,
+        "payload": payload,
+    });
+
+    let mut child = spawn_sidecar(app)?;
+
+    // Drop stdin after the request so the sidecar's stdin loop ends.
+    {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or("Failed to open sidecar stdin")?;
+        writeln!(stdin, "{}", request)
+            .map_err(|e| format!("Failed to write sidecar request: {e}"))?;
+    }
+
+    let stdout = child.stdout.take().ok_or("Failed to open sidecar stdout")?;
+    let reader = BufReader::new(stdout);
+
+    let mut final_response: Option<SidecarResponse> = None;
+
+    for line in reader.lines() {
+        let Ok(line) = line else { continue };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+            continue;
+        };
+
+        match value.get("event").and_then(|e| e.as_str()) {
+            Some("log") => {
+                if let Some(message) = value.get("message").and_then(|m| m.as_str()) {
+                    let _ = on_event.send(ProxyEvent::Log {
+                        message: message.to_string(),
+                    });
+                }
+                continue;
+            }
+            Some("progress") => {
+                if let Some(percent) = value.get("percent").and_then(|p| p.as_f64()) {
+                    let _ = on_event.send(ProxyEvent::Progress { percent });
+                }
+                continue;
+            }
+            _ => {}
+        }
+
+        if value.get("ok").is_some() {
+            final_response = serde_json::from_value(value).ok();
+            break;
+        }
+    }
+
+    let mut stderr = String::new();
+    if let Some(mut err_pipe) = child.stderr.take() {
+        use std::io::Read;
+        let _ = err_pipe.read_to_string(&mut stderr);
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+
+    let response =
+        final_response.ok_or_else(|| format!("Sidecar returned no response. stderr:\n{stderr}"))?;
+
+    if response.ok {
+        response
+            .result
+            .ok_or("Sidecar response missing result".to_string())
+    } else {
+        Err(format!(
+            "Sidecar error: {}\n\nstderr:\n{}",
+            response.error.unwrap_or_else(|| "Unknown error".to_string()),
+            stderr
+        ))
+    }
+}
+
 fn call_sidecar_streaming(
     app: &tauri::AppHandle,
     command: &str,
@@ -1075,7 +1242,10 @@ fn spawn_command(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Result<
 }
 
 fn spawn_sidecar(app: &tauri::AppHandle) -> Result<std::process::Child, String> {
-    if let Some(path) = resolve_sidecar_binary(app) {
+    // Debug builds only: YTCLIP_SIDECAR_SOURCE=1 runs the Python sources
+    // directly, so sidecar changes can be tried without a PyInstaller rebuild.
+    let force_source = cfg!(debug_assertions) && std::env::var_os("YTCLIP_SIDECAR_SOURCE").is_some();
+    if let Some(path) = resolve_sidecar_binary(app).filter(|_| !force_source) {
         return spawn_command(path, &[])
             .map_err(|e| format!("Failed to start bundled sidecar: {e}"));
     }
