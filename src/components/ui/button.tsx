@@ -9,7 +9,9 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-[var(--color-accent)] text-[var(--color-text-on-accent)] shadow-[var(--shadow-sm)] hover:bg-[var(--color-accent-hover)]",
+          // A faded white block reads as grey glare on black, so a disabled
+          // primary button turns into a quiet dark one instead.
+          "bg-[var(--color-accent)] text-[var(--color-text-on-accent)] shadow-[var(--shadow-sm)] hover:bg-[var(--color-accent-hover)] disabled:opacity-100 disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] disabled:shadow-none",
         destructive:
           "bg-[var(--color-error)] text-white shadow-[var(--shadow-sm)] hover:bg-[var(--color-error)]/90",
         outline:

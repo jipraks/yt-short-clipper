@@ -1,37 +1,37 @@
 @import "tailwindcss";
 
 @theme {
-  /* Backgrounds */
-  --color-bg-primary: #FFFFFF;
-  --color-bg-secondary: #F8FAFC;
-  --color-bg-card: #F0F4FF;
-  --color-bg-sidebar: #FAFBFF;
-  --color-bg-hover: #E8EEFF;
-  --color-bg-input: #FFFFFF;
+  /* Backgrounds: near-black app shell, slightly lifted panels */
+  --color-bg-primary: #151515;
+  --color-bg-secondary: #0A0A0A;
+  --color-bg-card: #1C1C1C;
+  --color-bg-sidebar: #111111;
+  --color-bg-hover: #232323;
+  --color-bg-input: #181818;
 
   /* Borders */
-  --color-border: #E2E8F0;
-  --color-border-light: #F1F5F9;
-  --color-border-focus: #3B82F6;
+  --color-border: #2A2A2A;
+  --color-border-light: #1F1F1F;
+  --color-border-focus: #A3A3A3;
 
-  /* Accent */
-  --color-accent: #2563EB;
-  --color-accent-hover: #1D4ED8;
-  --color-accent-light: #DBEAFE;
+  /* Accent: white on black, as in a video editor */
+  --color-accent: #FAFAFA;
+  --color-accent-hover: #E5E5E5;
+  --color-accent-light: #262626;
 
   /* Text */
-  --color-text-primary: #0F172A;
-  --color-text-secondary: #475569;
-  --color-text-muted: #94A3B8;
-  --color-text-on-accent: #FFFFFF;
+  --color-text-primary: #F5F5F5;
+  --color-text-secondary: #B3B3B3;
+  --color-text-muted: #7A7A7A;
+  --color-text-on-accent: #0A0A0A;
 
   /* Semantic */
-  --color-success: #16A34A;
-  --color-success-bg: #F0FDF4;
-  --color-warning: #CA8A04;
-  --color-warning-bg: #FEFCE8;
-  --color-error: #DC2626;
-  --color-error-bg: #FEF2F2;
+  --color-success: #4ADE80;
+  --color-success-bg: #10251A;
+  --color-warning: #FACC15;
+  --color-warning-bg: #2A2410;
+  --color-error: #F87171;
+  --color-error-bg: #2C1515;
 
   /* Radius */
   --radius-sm: 0.5rem;
@@ -40,9 +40,9 @@
   --radius-full: 9999px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.6);
 
   /* Font */
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -51,6 +51,12 @@
 @layer base {
   * {
     border-color: var(--color-border);
+    /* Focus-ring gaps default to white, which flashes on a black UI. */
+    --tw-ring-offset-color: var(--color-bg-secondary);
+  }
+
+  :root {
+    color-scheme: dark;
   }
 
   body {
