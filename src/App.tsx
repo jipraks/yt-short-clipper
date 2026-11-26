@@ -1,11 +1,13 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { useEffect, useState } from "react";
+import i18n from "@/i18n";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { CreatePage } from "@/pages/CreatePage";
 import { ProcessingPage } from "@/pages/ProcessingPage";
 import { HighlightSelectionPage } from "@/pages/HighlightSelectionPage";
 import { LibraryPage } from "@/pages/LibraryPage";
+import { ClipsPage } from "@/pages/ClipsPage";
 import { AIModelsPage } from "@/pages/AIModelsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { WatermarkSettingsPage } from "@/pages/WatermarkSettingsPage";
@@ -15,9 +17,12 @@ import { ProcessingClipsPage } from "@/pages/ProcessingClipsPage";
 import { ClipDetailPage } from "@/pages/ClipDetailPage";
 import { ReplizSettingsPage } from "@/pages/ReplizSettingsPage";
 import { CreditsPage } from "@/pages/CreditsPage";
+import { LanguagePickerPage } from "@/pages/LanguagePickerPage";
+import { OnboardingFlow } from "@/pages/onboarding/OnboardingFlow";
 import { UpdateDialog } from "@/components/UpdateDialog";
 import { NotificationDialog } from "@/components/NotificationDialog";
 import { checkForUpdate, type LatestVersionResponse } from "@/hooks/versionCheck";
+import { IS_STORE_BUILD } from "@/config/distribution";
 import { checkNotification, type NotificationResponse } from "@/hooks/notificationCheck";
 import { useAppStore } from "@/stores/appStore";
 import { useConfigStore } from "@/stores/configStore";
@@ -28,6 +33,10 @@ function App() {
   const [notification, setNotification] = useState<NotificationResponse | null>(null);
   const setStoreUpdate = useAppStore((s) => s.setAvailableUpdate);
   const loadConfig = useConfigStore((s) => s.load);
+  const configLoaded = useConfigStore((s) => s.loaded);
+  const language = useConfigStore((s) => s.config.language);
+  const termsAccepted = useConfigStore((s) => s.config.termsAcceptedAt !== null);
+  const onboardingDone = useConfigStore((s) => s.config.onboardingCompletedAt !== null);
   const initAccount = useAccountStore((s) => s.init);
 
   useEffect(() => {
@@ -36,17 +45,43 @@ function App() {
     void loadConfig();
     void initAccount();
 
-    checkForUpdate().then((result) => {
-      if (result) {
-        setUpdate(result);
-        setStoreUpdate(result);
-      }
-    });
+    // The Store updates its own installs; no self-update prompt there.
+    if (!IS_STORE_BUILD) {
+      checkForUpdate().then((result) => {
+        if (result) {
+          setUpdate(result);
+          setStoreUpdate(result);
+        }
+      });
+    }
 
     checkNotification().then((result) => {
       if (result) setNotification(result);
     });
   }, []);
+
+  // config.json is the source of truth for the UI language; keep i18n on it if
+  // anything else moved it.
+  useEffect(() => {
+    if (language && i18n.language !== language) void i18n.changeLanguage(language);
+  }, [language]);
+
+  // Wait for config.json before choosing a screen, so a returning user never
+  // sees the language picker flash past.
+  if (!configLoaded) return null;
+
+  // First launch: pick a language, then the setup wizard, then the app.
+  // A user who picked a language before the Terms existed sees the picker once
+  // more, so everyone has agreed before using the app.
+  const needsPicker = language === null || !termsAccepted;
+  if (needsPicker || !onboardingDone) {
+    return (
+      <>
+        {needsPicker ? <LanguagePickerPage /> : <OnboardingFlow />}
+        <Toaster position="bottom-right" richColors />
+      </>
+    );
+  }
 
   return (
     <>
@@ -55,13 +90,15 @@ function App() {
           <Route path="/" element={<CreatePage />} />
           <Route path="/processing" element={<ProcessingPage />} />
           <Route path="/highlights" element={<HighlightSelectionPage />} />
+          <Route path="/clips" element={<ClipsPage />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/ai-models" element={<AIModelsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/watermark" element={<WatermarkSettingsPage />} />
           <Route path="/settings/credit" element={<CreditWatermarkSettingsPage />} />
           <Route path="/settings/hook-style" element={<HookStyleSettingsPage />} />
-          <Route path="/settings/repliz" element={<ReplizSettingsPage />} />
+          <Route path="/repliz" element={<ReplizSettingsPage />} />
+          <Route path="/settings/repliz" element={<Navigate to="/repliz" replace />} />
           <Route path="/settings/credits" element={<CreditsPage />} />
           <Route path="/processing-clips" element={<ProcessingClipsPage />} />
           <Route path="/clip" element={<ClipDetailPage />} />

@@ -1,17 +1,18 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Loader2, Copy, Check } from "lucide-react";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { ArrowRight, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { processClips, type ProcessOptions } from "@/hooks/processClips";
 import { trackClipRendered, type ReframeFormat } from "@/hooks/analytics";
 import { useConfigStore } from "@/stores/configStore";
 import { inappSupported, useAccountStore } from "@/stores/accountStore";
-import { aiBlocker, blockerMessage, buildAIRequest } from "@/hooks/aiRuntime";
+import { aiBlocker, buildAIRequest, type AIBlocker } from "@/hooks/aiRuntime";
 import { isOutOfBalance } from "@/hooks/account";
 import { TopupDialog } from "@/components/TopupDialog";
-import { formatLogTime } from "@/utils/format";
+import { TechnicalLog, clock, levelForMessage, shortError, type LogLine } from "@/components/process/TechnicalLog";
+import { extractVideoId, fetchVideoInfo, getThumbnailUrl, type VideoInfo } from "@/utils/youtube";
+import { cn } from "@/lib/utils";
 
 interface ClipProcessingState {
   url: string;
@@ -20,93 +21,127 @@ interface ClipProcessingState {
   options: ProcessOptions;
 }
 
+/** What one clip goes through, in order. Stages the options turn off are left out. */
+type Stage = "download" | "reframe" | "hook" | "captions" | "overlay" | "save";
+
+interface ClipState {
+  status: "waiting" | "running" | "done" | "skipped" | "error";
+  stage: Stage;
+}
+
+type Failure =
+  | { kind: "blocker"; blocker: AIBlocker }
+  | { kind: "balance" }
+  | { kind: "error"; detail: string };
+
+function stagesFor(options: ProcessOptions): Stage[] {
+  const stages: Stage[] = ["download"];
+  if (options.reframeMode !== "original") stages.push("reframe");
+  if (options.addHook) stages.push("hook");
+  if (options.addCaptions) stages.push("captions");
+  if (options.addWatermark || options.addCreditWatermark) stages.push("overlay");
+  stages.push("save");
+  return stages;
+}
+
+/**
+ * Reads one sidecar log line and says which clip it is about and what that
+ * clip moves on to. The worker prefixes per-clip lines with "[i/total]".
+ */
+function transition(message: string): { index: number; next: Stage | "done" | "skipped" } | null {
+  const m = message.toLowerCase();
+  const start = /^processing clip (\d+)\/\d+/.exec(m);
+  if (start) return { index: Number(start[1]) - 1, next: "download" };
+  const tagged = /^\[(\d+)\/\d+\]/.exec(m);
+  if (!tagged) return null;
+  const index = Number(tagged[1]) - 1;
+  if (m.includes("already processed")) return { index, next: "skipped" };
+  if (m.includes("section downloaded")) return { index, next: "reframe" };
+  if (m.includes("portrait conversion")) return { index, next: "hook" };
+  if (m.includes("hook generation") || m.includes("no hook text")) return { index, next: "captions" };
+  if (m.includes("caption") || m.includes("no subtitle words")) return { index, next: "overlay" };
+  if (m.includes("watermark overlay")) return { index, next: "save" };
+  if (m.includes("clip saved")) return { index, next: "done" };
+  return null;
+}
+
+/** A clip's next stage, stepping over the ones this run does not do. */
+function settle(stage: Stage, stages: Stage[]): Stage {
+  const order: Stage[] = ["download", "reframe", "hook", "captions", "overlay", "save"];
+  for (let i = order.indexOf(stage); i < order.length; i++) {
+    if (stages.includes(order[i])) return order[i];
+  }
+  return "save";
+}
+
 export function ProcessingClipsPage() {
   const location = useLocation();
+  const state = location.state as ClipProcessingState | undefined;
+  if (!state) return <Navigate to="/" replace />;
+  return <RenderRun state={state} />;
+}
+
+function RenderRun({ state }: { state: ClipProcessingState }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { config } = useConfigStore();
   const { activated, account, appInfo, refresh: refreshAccount } = useAccountStore();
-  const state = location.state as ClipProcessingState | undefined;
-
-  if (!state) {
-    navigate("/");
-    return null;
-  }
-
   const { url, highlights, sessionDir, options } = state;
-  const [logLines, setLogLines] = useState<{ level: string; message: string; ts: number }[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [currentStep, setCurrentStep] = useState(0); // 0=download, 1=portrait, 2=hook, 3=caption, 4=watermark
-  const [progress, setProgress] = useState(0);
-  const [isComplete, setIsComplete] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [showTopup, setShowTopup] = useState(false);
-  const logEndRef = useRef<HTMLDivElement>(null);
-  const copyLog = useCallback(async () => {
-    const text = logLines
-      .map((l) => `[${formatLogTime(l.ts)}] ${l.level.toUpperCase()}: ${l.message}`)
-      .join("\n");
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // silent
-    }
-  }, [logLines]);
+  const stages = stagesFor(options);
+  // The session folder's name is its id; the Clips page filters on it.
+  const clipsUrl = `/clips?session=${encodeURIComponent(sessionDir.split(/[\\/]/).filter(Boolean).pop() ?? "")}`;
+  const total = highlights.length;
 
+  const [logLines, setLogLines] = useState<LogLine[]>([]);
+  const [clips, setClips] = useState<ClipState[]>(() => highlights.map(() => ({ status: "waiting", stage: "download" })));
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [isComplete, setIsComplete] = useState(false);
+  const [running, setRunning] = useState(true);
+  const [showLog, setShowLog] = useState(false);
+  const [showTopup, setShowTopup] = useState(false);
+  const [startedAt, setStartedAt] = useState(() => Date.now());
+  const [elapsed, setElapsed] = useState(0);
+  const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
   const startedRef = useRef(false);
 
-  const appendLog = useCallback((message: string) => {
-    const m = message.toLowerCase();
-    const level = m.includes("error") || m.includes("failed") ? "error"
-      : m.includes("success") || m.includes("complete") || m.includes("saved") ? "success"
-      : "info";
-    setLogLines((prev) => [...prev, { level, message, ts: Date.now() }]);
-  }, []);
-
-  // Auto-progress based on log patterns
+  const videoId = extractVideoId(url);
   useEffect(() => {
-    const lastLog = (logLines[logLines.length - 1]?.message || "").toLowerCase();
+    if (!videoId) return;
+    const controller = new AbortController();
+    fetchVideoInfo(videoId, controller.signal).then((info) => {
+      if (!controller.signal.aborted) setVideoInfo(info);
+    });
+    return () => controller.abort();
+  }, [videoId]);
 
-    if (lastLog.includes("section downloaded")) {
-      setCurrentStep(1);
-    }
-    if (
-      lastLog.includes("portrait conversion complete") ||
-      lastLog.includes("portrait complete") ||
-      lastLog.includes("portrait conversion skipped")
-    ) {
-      setCurrentStep(2);
-    }
-    if (lastLog.includes("hook generation complete") || lastLog.includes("hook complete") || lastLog.includes("hook generation skipped")) {
-      setCurrentStep(3);
-    }
-    if (lastLog.includes("caption generation complete") || lastLog.includes("caption complete") || lastLog.includes("caption generation skipped")) {
-      setCurrentStep(4);
-    }
-    if (lastLog.includes("watermark") && lastLog.includes("complete")) {
-      setCurrentStep(5);
-    }
-
-    const clipsSaved = logLines.filter((l) => l.message.toLowerCase().includes("clip saved")).length;
-    if (clipsSaved > 0 && highlights.length > 0) {
-      setProgress(Math.min(95, Math.round((clipsSaved / highlights.length) * 95)));
-    }
-  }, [logLines, highlights.length]);
+  const onLog = useCallback(
+    (message: string) => {
+      setLogLines((prev) => [...prev, { level: levelForMessage(message), message, ts: Date.now() }]);
+      const step = transition(message);
+      if (!step) return;
+      setClips((prev) =>
+        prev.map((c, i) => {
+          // On a retry the worker walks past what this page already finished.
+          // That clip was made here, not earlier, so it stays "done".
+          if (i !== step.index || c.status === "done") return c;
+          if (step.next === "done") return { status: "done", stage: "save" };
+          if (step.next === "skipped") return { status: "skipped", stage: "save" };
+          return { status: "running", stage: settle(step.next, stages) };
+        }),
+      );
+    },
+    // stages only depends on options, which never change during a run.
+    [],
+  );
 
   const run = useCallback(async () => {
-    const blocker = aiBlocker(config.ai, {
-      activated,
-      account,
-      inappSupported: inappSupported(appInfo),
-    });
+    const blocker = aiBlocker(config.ai, { activated, account, inappSupported: inappSupported(appInfo) });
     if (blocker) {
-      setError(blockerMessage(blocker));
+      setFailure({ kind: "blocker", blocker });
+      setRunning(false);
       if (blocker.kind === "no-balance") setShowTopup(true);
       return;
     }
-
-    appendLog("Starting clip processing...");
 
     try {
       const hookStyle = config.hookStyle;
@@ -153,33 +188,10 @@ export function ProcessingClipsPage() {
             tail_out: paddingConfig.tailOut,
           },
         },
-        onLog: (message) => {
-          appendLog(message);
-          const m = message.toLowerCase();
-          // Step transitions happen when a step COMPLETES, not when it starts
-          if (m.includes("section downloaded")) {
-            setCurrentStep(1); // Download done → now doing Portrait
-          } else if (
-            m.includes("portrait conversion complete") ||
-            m.includes("portrait complete") ||
-            m.includes("portrait conversion skipped")
-          ) {
-            setCurrentStep(2); // Portrait done → now doing Hook
-          } else if (m.includes("hook generation complete") || m.includes("hook complete") || m.includes("hook generation skipped")) {
-            setCurrentStep(3); // Hook done → now doing Caption
-          } else if (m.includes("caption generation complete") || m.includes("caption complete") || m.includes("caption generation skipped")) {
-            setCurrentStep(4); // Caption done → now doing Watermark
-          } else if (m.includes("watermark") && m.includes("complete")) {
-            setCurrentStep(5); // Watermark done
-          }
-          if (m.includes("all") && m.includes("processed")) {
-            setProgress(100);
-            setIsComplete(true);
-          }
-        },
-      }) as {
+        onLog,
+      })) as {
         results?: Array<{ clip_index?: number; skipped?: boolean; duration_seconds?: number }>;
-      });
+      };
 
       // One analytics event per clip actually rendered here. Clips skipped
       // because an earlier session already produced them are excluded.
@@ -191,8 +203,8 @@ export function ProcessingClipsPage() {
             : options.centeredBackground === "blurred"
               ? "centered-blur"
               : "centered-black";
-      // The worker reports the padded length — what the file actually runs
-      // for. Older sidecars omit it, so fall back to the model's own pick,
+      // The worker reports the padded length, which is what the file actually
+      // runs for. Older sidecars omit it, so fall back to the model's own pick,
       // which is short by the padding but better than dropping the event.
       const durationByIndex = new Map<number, number>();
       highlights.forEach((h) => {
@@ -208,179 +220,211 @@ export function ProcessingClipsPage() {
         trackClipRendered({ durationSeconds: dur, format });
       }
 
+      // Anything the log did not mark (an older sidecar's wording) is done too.
+      setClips((prev) => prev.map((c) => (c.status === "skipped" ? c : { status: "done", stage: "save" })));
       setIsComplete(true);
-      setProgress(100);
-      appendLog("✅ All clips processed successfully!");
     } catch (err) {
       const detail = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
       console.error("process_clips failed", err);
-
-      // The balance can run dry mid-run — one job is many requests. Say so in
-      // those words and put the top-up in front of the user, rather than
-      // leaving them to decode a budget error from LiteLLM.
+      setClips((prev) => prev.map((c) => (c.status === "running" ? { ...c, status: "error" } : c)));
+      // The balance can run dry mid-run, since one job is many requests. Say
+      // so plainly and put the top-up in front of the user.
       if (config.ai.source === "inapp" && isOutOfBalance(err)) {
-        setError("Your balance ran out partway through. Clips already finished are saved.");
-        appendLog("❌ Balance exhausted — top up to finish the rest.");
+        setFailure({ kind: "balance" });
         setShowTopup(true);
         void refreshAccount();
       } else {
-        setError(detail);
-        appendLog(`❌ Error: `);
+        setFailure({ kind: "error", detail });
+        setShowLog(true);
       }
+    } finally {
+      setRunning(false);
     }
-  }, [url, highlights, sessionDir, options, config.ai, config.hookStyle, config.watermark, config.creditWatermark, config.clipPadding, activated, account, appInfo, refreshAccount, appendLog, navigate]);
+  }, [url, highlights, sessionDir, options, config.ai, config.hookStyle, config.watermark, config.creditWatermark, config.clipPadding, activated, account, appInfo, refreshAccount, onLog]);
 
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
-    run();
+    void run();
   }, [run]);
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logLines]);
+    if (!running) return;
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [running, startedAt]);
+
+  const retry = () => {
+    setFailure(null);
+    setIsComplete(false);
+    setShowLog(false);
+    setLogLines([]);
+    // Finished clips stay finished: the worker skips them on the next run.
+    setClips((prev) => prev.map((c) => (c.status === "done" || c.status === "skipped" ? c : { status: "waiting", stage: "download" })));
+    setStartedAt(Date.now());
+    setElapsed(0);
+    setRunning(true);
+    void run();
+  };
+
+  const finished = clips.filter((c) => c.status === "done" || c.status === "skipped").length;
+  const skipped = clips.filter((c) => c.status === "skipped").length;
+  const currentIndex = clips.findIndex((c) => c.status === "running");
+  const current = currentIndex >= 0 ? clips[currentIndex] : null;
+  // Each clip counts in equal parts; inside a clip, each stage does too.
+  const partial = current ? stages.indexOf(current.stage) / stages.length : 0;
+  const percent = isComplete ? 100 : Math.round(((finished + partial) / Math.max(1, total)) * 100);
+
+  const titleOf = (i: number) => (highlights[i] as { title?: string })?.title || t("renderPage.clipOf", { n: i + 1, total });
+  const stageBody = (stage: Stage) =>
+    stage === "reframe"
+      ? t(`renderPage.stages.reframe.${options.reframeMode === "face" ? "face" : "centered"}`)
+      : t(`renderPage.stages.${stage}.body`);
 
   return (
-    <div className="space-y-5">
-      <Button
-        variant="ghost"
-        onClick={() => navigate("/")}
-        className="gap-2 text-[var(--color-text-secondary)]"
-        disabled={!isComplete}
-      >
-        <ArrowLeft className="w-4 h-4" />
-        {isComplete ? "Back to Create" : "Processing..."}
-      </Button>
-
-      <div>
-        <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">
-          {isComplete ? "✅ Processing complete!" : "Processing clips..."}
-        </h2>
-        <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          {isComplete
-            ? "All clips have been processed and saved."
-            : `Processing ${highlights.length} clips with selected enhancements.`}
-        </p>
+    <div className="mx-auto max-w-[760px] py-4">
+      {/* Which video this is about */}
+      <div className="flex items-center gap-4">
+        {videoId && (
+          <img
+            src={getThumbnailUrl(videoId, "mq")}
+            alt=""
+            className="aspect-video w-28 shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-border)] object-cover"
+          />
+        )}
+        <div className="min-w-0">
+          <p className="text-sm text-[var(--color-text-muted)]">
+            {failure ? t("renderPage.errorTitle") : isComplete ? t("renderPage.doneTitle") : t("renderPage.title")}
+            {" · "}
+            {t(`renderPage.shape.${options.reframeMode}`)}
+          </p>
+          <p className="mt-0.5 line-clamp-2 text-lg font-semibold text-[var(--color-text-primary)] leading-snug">
+            {videoInfo?.title ?? url}
+          </p>
+        </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-[var(--color-text-secondary)]">Progress</span>
-          <span className="text-sm text-[var(--color-text-muted)]">{Math.round(progress)}%</span>
+      {/* Overall progress */}
+      <div className="mt-8">
+        <div className="flex items-baseline justify-between gap-4">
+          <p className="text-sm font-medium text-[var(--color-text-primary)]">
+            {t("renderPage.progress", { done: finished, total })}
+          </p>
+          <p className="text-xs tabular-nums text-[var(--color-text-muted)]">
+            {running ? t("renderPage.elapsed", { time: clock(elapsed) }) : `${percent}%`}
+          </p>
         </div>
-        <Progress value={progress} />
-      </div>
-
-      {/* Steps summary */}
-      <Card className="p-4">
-        <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-3">Enhancements</h3>
-        <div className="space-y-2">
-          {[
-            { label: "Download video sections", step: 0 },
-            {
-              label:
-                options.reframeMode === "original"
-                  ? "Portrait conversion (skipped — 16:9)"
-                  : "Portrait conversion (9:16)",
-              step: 1,
-            },
-            { label: "Hook generation", step: 2, required: options.addHook },
-            { label: "Caption generation", step: 3, required: options.addCaptions },
-            { label: "Watermark overlay", step: 4, required: options.addWatermark || options.addCreditWatermark },
-          ].map((item, i) => {
-            const isActive = currentStep === item.step;
-            const isDone = currentStep > item.step;
-            const skip = item.required === false;
-
-            return (
-              <div key={i} className="flex items-center gap-3">
-                {skip ? (
-                  <span className="w-5 h-5 shrink-0 flex items-center justify-center text-[var(--color-text-muted)] text-xs">—</span>
-                ) : isDone ? (
-                  <CheckCircle2 className="w-5 h-5 text-[var(--color-success)] shrink-0" />
-                ) : isActive ? (
-                  <Loader2 className="w-5 h-5 text-[var(--color-accent)] animate-spin shrink-0" />
-                ) : (
-                  <Loader2 className="w-5 h-5 text-[var(--color-text-muted)] shrink-0 opacity-30" />
-                )}
-                <span className={`text-sm ${
-                  isDone ? "text-[var(--color-success)]"
-                    : isActive ? "text-[var(--color-accent)] font-medium"
-                    : skip ? "text-[var(--color-text-muted)] line-through"
-                    : "text-[var(--color-text-muted)]"
-                }`}>
-                  {item.label}{skip ? " (skipped)" : ""}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      {/* Log console */}
-      <Card className="p-0 overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border-light)] bg-[var(--color-bg-sidebar)]">
-          <span className="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">
-            Log Output
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={copyLog}
-            disabled={logLines.length === 0}
-            className="h-7 gap-1.5 text-xs"
-          >
-            {copied ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-[var(--color-success)]" />
-                Copied
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5" />
-                Copy
-              </>
+        <div
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+          aria-label={t("renderPage.progress", { done: finished, total })}
+          className="mt-2.5 h-2 overflow-hidden rounded-full bg-[var(--color-bg-hover)]"
+        >
+          <div
+            className={cn(
+              "h-full rounded-full transition-[width] duration-700 ease-out",
+              failure ? "bg-[var(--color-text-muted)]" : isComplete ? "bg-[var(--color-success)]" : "bg-[var(--color-accent)]",
             )}
-          </Button>
+            style={{ width: `${percent}%` }}
+          />
         </div>
-        <div className="h-[260px] overflow-y-auto p-3 font-mono text-xs space-y-1 bg-[var(--color-bg-primary)]">
-          {logLines.map((line, i) => (
-            <div key={i} className="flex gap-2">
-              <span className="text-[var(--color-text-muted)] shrink-0">
-                [{formatLogTime(line.ts)}]
-              </span>
-              <span
-                className={
-                  line.level === "error" ? "text-[var(--color-error)]"
-                    : line.level === "success" ? "text-[var(--color-success)]"
-                    : "text-[var(--color-text-secondary)]"
-                }
-              >
-                {line.message}
-              </span>
+      </div>
+
+      {/* What is happening right now, or how it ended */}
+      <section
+        aria-live="polite"
+        className={cn(
+          "mt-6 rounded-[var(--radius-lg)] border p-5",
+          failure ? "border-[var(--color-error)]/40 bg-[var(--color-error-bg)]" : "border-[var(--color-border)] bg-[var(--color-bg-primary)]",
+        )}
+      >
+        {failure ? (
+          <FailurePanel
+            failure={failure}
+            hasFinished={finished > 0}
+            onRetry={retry}
+            onTopUp={() => setShowTopup(true)}
+            onOpenAi={() => navigate("/ai-models")}
+            onOpenLibrary={() => navigate(clipsUrl)}
+          />
+        ) : isComplete ? (
+          <>
+            <p className="text-xl font-bold text-[var(--color-text-primary)]">{t("renderPage.doneTitle")}</p>
+            <p className="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">
+              {t("renderPage.done", { count: total })}
+              {skipped > 0 && ` ${t("renderPage.doneSkipped", { count: skipped })}`}
+            </p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Button onClick={() => navigate(clipsUrl)} className="h-11 gap-2 px-6 text-base font-semibold">
+                {t("renderPage.openLibrary")}
+                <ArrowRight aria-hidden className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" onClick={() => navigate("/")} className="h-11 px-5">
+                {t("renderPage.makeMore")}
+              </Button>
             </div>
-          ))}
-          <div ref={logEndRef} />
-        </div>
-      </Card>
+          </>
+        ) : current ? (
+          <>
+            <p className="text-xs font-medium text-[var(--color-text-muted)]">
+              {t("renderPage.clipOf", { n: currentIndex + 1, total })}
+              {" · "}
+              <span className="text-[var(--color-text-secondary)]">{titleOf(currentIndex)}</span>
+            </p>
+            <p className="mt-1 text-xl font-bold text-[var(--color-text-primary)]">
+              {t(`renderPage.stages.${current.stage}.title`)}
+            </p>
+            <p className="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">{stageBody(current.stage)}</p>
+            <StageTrack stages={stages} current={current.stage} />
+            <p className="mt-4 text-xs text-[var(--color-text-muted)]">{t("renderPage.keepOpen")}</p>
+          </>
+        ) : (
+          <>
+            <p className="text-xl font-bold text-[var(--color-text-primary)]">
+              {finished === 0 ? t("renderPage.preparing") : t("renderPage.wrappingUp")}
+            </p>
+            <p className="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">
+              {finished === 0 ? t("renderPage.preparingBody") : t("renderPage.wrappingUpBody")}
+            </p>
+            <p className="mt-4 text-xs text-[var(--color-text-muted)]">{t("renderPage.keepOpen")}</p>
+          </>
+        )}
+      </section>
 
-      {error && (
-        <Button onClick={() => navigate("/")} variant="outline" className="w-full">
-          Back to Create
-        </Button>
-      )}
+      {/* Every clip and where it is */}
+      <ol className="mt-6 divide-y divide-[var(--color-border)] rounded-[var(--radius-lg)] border border-[var(--color-border)]">
+        {clips.map((clip, i) => (
+          <li key={i} className="flex items-center gap-3 px-4 py-3">
+            <ClipBadge clip={clip} n={i + 1} />
+            <p
+              className={cn(
+                "min-w-0 flex-1 truncate text-sm",
+                clip.status === "running" ? "font-semibold text-[var(--color-text-primary)]" : "text-[var(--color-text-secondary)]",
+              )}
+            >
+              {titleOf(i)}
+            </p>
+            <span
+              className={cn(
+                "shrink-0 text-xs",
+                clip.status === "running"
+                  ? "text-[var(--color-accent)]"
+                  : clip.status === "done"
+                    ? "text-[var(--color-success)]"
+                    : clip.status === "error"
+                      ? "text-[var(--color-error)]"
+                      : "text-[var(--color-text-muted)]",
+              )}
+            >
+              {clip.status === "running" ? t(`renderPage.stages.${clip.stage}.title`) : t(`renderPage.status.${clip.status}`)}
+            </span>
+          </li>
+        ))}
+      </ol>
 
-      {isComplete && !error && (
-        <div className="flex gap-3">
-          <Button onClick={() => navigate("/")} variant="outline" className="flex-1">
-            Back to Create
-          </Button>
-          <Button onClick={() => navigate("/library")} className="flex-1">
-            Go to Library
-          </Button>
-        </div>
-      )}
+      <TechnicalLog lines={logLines} open={showLog} onToggle={() => setShowLog((v) => !v)} />
 
       {showTopup && (
         <TopupDialog
@@ -391,5 +435,116 @@ export function ProcessingClipsPage() {
         />
       )}
     </div>
+  );
+}
+
+/** The current clip's stages as a row of short segments: done, now, still to go. */
+function StageTrack({ stages, current }: { stages: Stage[]; current: Stage }) {
+  const { t } = useTranslation();
+  const at = stages.indexOf(current);
+  return (
+    <ol className="mt-5 flex gap-1.5" aria-label={t(`renderPage.stages.${current}.title`)}>
+      {stages.map((stage, i) => (
+        <li key={stage} className="min-w-0 flex-1" title={t(`renderPage.stages.${stage}.title`)}>
+          <span
+            className={cn(
+              "block h-1.5 rounded-full",
+              i < at
+                ? "bg-[var(--color-success)]"
+                : i === at
+                  ? "bg-[var(--color-accent)] motion-safe:animate-pulse"
+                  : "bg-[var(--color-bg-hover)]",
+            )}
+          />
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function ClipBadge({ clip, n }: { clip: ClipState; n: number }) {
+  const base = "relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold";
+  if (clip.status === "done" || clip.status === "skipped") {
+    return (
+      <span className={cn(base, "bg-[var(--color-success)] text-[var(--color-bg-primary)]")}>
+        <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={3} />
+      </span>
+    );
+  }
+  if (clip.status === "error") {
+    return (
+      <span className={cn(base, "bg-[var(--color-error)] text-[var(--color-bg-primary)]")}>
+        <X aria-hidden className="h-3.5 w-3.5" strokeWidth={3} />
+      </span>
+    );
+  }
+  if (clip.status === "running") {
+    return (
+      <span className={cn(base, "text-[var(--color-accent)]")}>
+        <svg aria-hidden viewBox="0 0 28 28" className="absolute inset-0 h-7 w-7 motion-safe:animate-spin [animation-duration:1.1s]">
+          <circle cx="14" cy="14" r="12" fill="none" stroke="var(--color-border)" strokeWidth="2" />
+          <circle cx="14" cy="14" r="12" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeDasharray="20 76" />
+        </svg>
+        {n}
+      </span>
+    );
+  }
+  return <span className={cn(base, "border border-[var(--color-border)] text-[var(--color-text-muted)]")}>{n}</span>;
+}
+
+function FailurePanel({
+  failure,
+  hasFinished,
+  onRetry,
+  onTopUp,
+  onOpenAi,
+  onOpenLibrary,
+}: {
+  failure: Failure;
+  hasFinished: boolean;
+  onRetry: () => void;
+  onTopUp: () => void;
+  onOpenAi: () => void;
+  onOpenLibrary: () => void;
+}) {
+  const { t } = useTranslation();
+  const reason =
+    failure.kind === "balance"
+      ? t("renderPage.outOfBalance")
+      : failure.kind === "error"
+        ? shortError(failure.detail)
+        : failure.blocker.kind === "account-blocked"
+          ? failure.blocker.detail
+          : t(`renderPage.blocker.${failure.blocker.kind}`);
+  const needsTopUp = failure.kind === "balance" || (failure.kind === "blocker" && failure.blocker.kind === "no-balance");
+  const needsAiSetup = failure.kind === "blocker" && !needsTopUp && failure.blocker.kind !== "account-blocked";
+
+  return (
+    <>
+      <p className="text-base font-semibold text-[var(--color-text-primary)]">{t("renderPage.errorTitle")}</p>
+      <p className="mt-2 whitespace-pre-line break-words text-sm text-[var(--color-error)]">{reason}</p>
+      {failure.kind !== "blocker" && (
+        <p className="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">{t("renderPage.errorBody")}</p>
+      )}
+      <div className="mt-5 flex flex-wrap gap-3">
+        {needsTopUp ? (
+          <Button onClick={onTopUp} className="h-11 px-5">
+            {t("renderPage.topUp")}
+          </Button>
+        ) : needsAiSetup ? (
+          <Button onClick={onOpenAi} className="h-11 px-5">
+            {t("renderPage.setUpAi")}
+          </Button>
+        ) : null}
+        <Button variant={needsTopUp || needsAiSetup ? "outline" : "default"} onClick={onRetry} className="h-11 px-5">
+          {t("renderPage.retry")}
+        </Button>
+        {hasFinished && (
+          <Button variant="outline" onClick={onOpenLibrary} className="h-11 px-5">
+            {t("renderPage.openLibrary")}
+          </Button>
+        )}
+      </div>
+    </>
   );
 }

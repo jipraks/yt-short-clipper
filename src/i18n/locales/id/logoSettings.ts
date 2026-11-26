@@ -1,0 +1,68 @@
+import type { Messages } from "../../types";
+
+/** Indonesian strings for the "logoSettings" namespace. */
+export const logoSettings: Messages["logoSettings"] = {
+  back: "Pengaturan",
+  title: "Logo",
+  subtitle: "Logo kamu, ditempel di setiap klip. Geser logonya di pratinjau untuk memindahkan.",
+  loading: "Memuat pengaturan logo…",
+  enable: {
+    title: "Pasang logo di setiap klip",
+    body: "Ini setelan bawaan. Kamu tetap bisa mematikannya untuk satu render di dialog render.",
+  },
+  preview: {
+    label: "Pratinjau",
+    aria: "Pratinjau posisi logo di klip 9:16",
+    frame: "Klip 9:16",
+    empty: "Belum ada logo",
+    off: "Logo sedang mati",
+    hint: "Geser logonya untuk memindahkan.",
+    logoAlt: "Logo kamu",
+  },
+  image: {
+    title: "Gambar logo",
+    body: "PNG atau JPG, maksimal 5 MB. PNG dengan latar transparan hasilnya paling rapi.",
+    drop: "Tarik gambar ke sini, atau",
+    pick: "pilih file",
+    dropActive: "Lepas untuk memakai gambar ini",
+    replace: "Ganti",
+    remove: "Hapus",
+    uploading: "Menambahkan gambar…",
+    missing: "Logo yang tersimpan tidak bisa dibuka. Pilih gambarnya lagi.",
+  },
+  errors: {
+    wrongType: "File itu bukan PNG atau JPG.",
+    tooBig: "Gambarnya {{size}} MB. Maksimal 5 MB.",
+    uploadFailed: "Gambarnya tidak bisa dipakai: {{reason}}",
+    turnOnFirst: "Nyalakan logonya dulu, lalu tarik gambarnya lagi.",
+    needImage: "Pilih gambar logo dulu, atau matikan logonya.",
+  },
+  loaded: "Logo ditambahkan. Simpan supaya tidak hilang.",
+  position: {
+    title: "Posisi",
+    body: "Pilih sudutnya, lalu setel lebih halus pakai slider.",
+    presetsAria: "Posisi cepat",
+    presets: {
+      topLeft: "Kiri atas",
+      topCenter: "Tengah atas",
+      topRight: "Kanan atas",
+      bottomLeft: "Kiri bawah",
+      bottomCenter: "Tengah bawah",
+      bottomRight: "Kanan bawah",
+    },
+    x: "Kiri ke kanan",
+    y: "Atas ke bawah",
+    value: "{{pct}}%",
+  },
+  look: {
+    title: "Tampilan",
+    opacity: "Opasitas",
+    size: "Ukuran",
+    sizeOfFrame: "{{pct}}% lebar klip",
+    sizeRaw: "{{pct}}%",
+  },
+  save: "Simpan",
+  saving: "Menyimpan…",
+  saved: "Pengaturan logo disimpan.",
+  saveFailed: "Pengaturan logo gagal disimpan: {{reason}}",
+};

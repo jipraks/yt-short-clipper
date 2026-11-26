@@ -33,3 +33,26 @@ export function getThumbnailUrl(
   };
   return `https://img.youtube.com/vi/${videoId}/${qualityMap[quality]}.jpg`;
 }
+
+export interface VideoInfo {
+  title: string;
+  channel: string;
+}
+
+/**
+ * Title and channel of a public video from YouTube's oEmbed endpoint. Needs no
+ * key and allows the app's origin. Null when the video is private, removed,
+ * or the network is down; callers show the video without a title then.
+ */
+export async function fetchVideoInfo(videoId: string, signal?: AbortSignal): Promise<VideoInfo | null> {
+  const watch = `https://www.youtube.com/watch?v=${videoId}`;
+  try {
+    const res = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(watch)}`, { signal });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { title?: unknown; author_name?: unknown };
+    if (typeof data.title !== "string") return null;
+    return { title: data.title, channel: typeof data.author_name === "string" ? data.author_name : "" };
+  } catch {
+    return null;
+  }
+}

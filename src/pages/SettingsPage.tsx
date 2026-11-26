@@ -1,60 +1,70 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Cpu, Loader2, RefreshCw, Zap, ChevronRight } from "lucide-react";
+import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { ChevronRight, Loader2, Minus, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { SettingRow, SettingSection } from "@/components/settings/SettingRow";
-import { Input } from "@/components/ui/input";
-import {
-  detectGpu,
-  MAX_CLIP_PADDING,
-  type ClipPaddingSettings,
-  type GpuDetection,
-} from "@/hooks/appConfig";
+import { detectGpu, MAX_CLIP_PADDING, type ClipPaddingSettings, type GpuDetection } from "@/hooks/appConfig";
 import { useConfigStore } from "@/stores/configStore";
+import { APP_VERSION } from "@/config/version";
+import { cn } from "@/lib/utils";
 
+const LANGUAGES = ["id", "en"] as const;
+
+/**
+ * Everything adjustable, grouped by what it changes: the app, the clips,
+ * their timing, rendering speed, posting. Rows that lead to another page are
+ * whole-row links with their current state on the right.
+ */
 export function SettingsPage() {
-  const navigate = useNavigate();
-  const { config, loaded, load, setGpuAcceleration, setClipPadding } = useConfigStore();
+  const { t } = useTranslation();
+  const { config, loaded, changeLanguage, setGpuAcceleration, setClipPadding } = useConfigStore();
   const [detection, setDetection] = useState<GpuDetection | null>(null);
   const [detecting, setDetecting] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const [savingGpu, setSavingGpu] = useState(false);
+  const [savingLanguage, setSavingLanguage] = useState(false);
 
   const runDetect = async () => {
     setDetecting(true);
     try {
-      const result = await detectGpu();
-      setDetection(result);
+      setDetection(await detectGpu());
     } catch (err) {
       console.error("GPU detection failed", err);
-      toast.error("GPU detection failed");
+      toast.error(t("settingsPage.gpu.detectFailed"));
     } finally {
       setDetecting(false);
     }
   };
 
   useEffect(() => {
-    runDetect();
+    void runDetect();
+    // Once, on open.
   }, []);
 
-  const gpuEnabled = config.gpuAcceleration.enabled;
   const encoderAvailable = detection?.encoder.available ?? false;
-  const canToggle = encoderAvailable && !detecting;
+  const gpuOn = config.gpuAcceleration.enabled && encoderAvailable;
 
-  const handleToggle = async (next: boolean) => {
-    setSaving(true);
+  const toggleGpu = async (next: boolean) => {
+    setSavingGpu(true);
     try {
       await setGpuAcceleration(next);
-      toast.success(next ? "GPU acceleration enabled" : "GPU acceleration disabled");
+      toast.success(next ? t("settingsPage.gpu.enabled") : t("settingsPage.gpu.disabled"));
     } catch {
-      toast.error("Failed to save setting");
+      toast.error(t("settingsPage.saveFailed"));
     } finally {
-      setSaving(false);
+      setSavingGpu(false);
+    }
+  };
+
+  const pickLanguage = async (language: (typeof LANGUAGES)[number]) => {
+    if (language === config.language || savingLanguage) return;
+    setSavingLanguage(true);
+    try {
+      await changeLanguage(language);
+    } catch {
+      toast.error(t("settingsPage.saveFailed"));
+    } finally {
+      setSavingLanguage(false);
     }
   };
 
@@ -62,305 +72,275 @@ export function SettingsPage() {
     try {
       await setClipPadding(next);
     } catch {
-      toast.error("Failed to save clip timing");
+      toast.error(t("settingsPage.saveFailed"));
     }
   };
 
+  const creditText = config.creditWatermark.text.trim();
+  const hasLogo = config.watermark.imagePath.trim() !== "";
+  const replizOn = config.repliz.accessKey.trim() !== "" && config.repliz.secretKey.trim() !== "";
+  const totalPadding = config.clipPadding.leadIn + config.clipPadding.tailOut;
+
+  const gpuStatus = detecting
+    ? t("settingsPage.gpu.detecting")
+    : !detection
+      ? t("settingsPage.gpu.notChecked")
+      : detection.gpu.available && encoderAvailable
+        ? t("settingsPage.gpu.detected", { name: detection.gpu.name })
+        : t("settingsPage.gpu.none");
+
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Settings</h1>
-        <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          Configure performance and output options.
-        </p>
-      </div>
+    <div className="mx-auto max-w-2xl py-4">
+      <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">{t("settingsPage.title")}</h1>
+      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{t("settingsPage.subtitle")}</p>
 
-      <SettingSection
-        title="GPU Acceleration"
-        description="Hardware encoding is 3-5x faster than CPU. Requires a compatible GPU."
-      >
-        <SettingRow
-          title="Detected GPU"
-          description={
-            detecting
-              ? "Detecting..."
-              : detection
-                ? detection.gpu.available
-                  ? `${gpuTypeLabel(detection.gpu.type)} · ${detection.gpu.name}`
-                  : "No GPU detected — CPU encoding will be used"
-                : "Not checked yet"
-          }
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={runDetect}
-            disabled={detecting}
-            className="gap-2"
+      <Section title={t("settingsPage.general.title")}>
+        <Row title={t("settingsPage.general.language")} body={t("settingsPage.general.languageBody")}>
+          <div
+            role="radiogroup"
+            aria-label={t("settingsPage.general.language")}
+            className="inline-flex rounded-full border border-[var(--color-border)] p-0.5"
           >
-            {detecting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-            Detect
-          </Button>
-        </SettingRow>
-
-        <SettingRow
-          title="Enable GPU acceleration"
-          description={
-            encoderAvailable
-              ? `Encoder: ${detection?.encoder.name}${
-                  detection?.encoder.preset ? ` · preset ${detection.encoder.preset}` : ""
-                }`
-              : detection?.encoder.reason ?? "Run detection to check encoder support"
-          }
-        >
-          <div className="flex items-center gap-2">
-            {saving && <Loader2 className="w-4 h-4 animate-spin text-[var(--color-text-muted)]" />}
-            <Switch
-              checked={gpuEnabled && encoderAvailable}
-              onCheckedChange={handleToggle}
-              disabled={!canToggle || saving || !loaded}
-            />
+            {LANGUAGES.map((code) => {
+              const on = config.language === code;
+              return (
+                <button
+                  key={code}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  disabled={!loaded || savingLanguage}
+                  onClick={() => void pickLanguage(code)}
+                  className={cn(
+                    "rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors cursor-pointer disabled:cursor-wait focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]",
+                    on
+                      ? "bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]"
+                      : "text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]",
+                  )}
+                >
+                  {t(`common.language.${code}`)}
+                </button>
+              );
+            })}
           </div>
-        </SettingRow>
+        </Row>
+      </Section>
 
-        <SettingRow
-          title="Active encoder"
-          description="What will be used when processing video."
-        >
-          <span className="inline-flex items-center gap-2 text-sm font-medium">
-            {gpuEnabled && encoderAvailable ? (
-              <>
-                <Zap className="w-4 h-4 text-[var(--color-success)]" />
-                <span className="text-[var(--color-success)]">
-                  {detection?.encoder.name}
-                </span>
-              </>
-            ) : (
-              <>
-                <Cpu className="w-4 h-4 text-[var(--color-text-muted)]" />
-                <span className="text-[var(--color-text-secondary)]">libx264 (CPU)</span>
-              </>
-            )}
-          </span>
-        </SettingRow>
-      </SettingSection>
+      <Section title={t("settingsPage.clipLook.title")} body={t("settingsPage.clipLook.body")}>
+        <LinkRow
+          to="/settings/watermark"
+          title={t("settingsPage.clipLook.logo")}
+          body={hasLogo ? t("settingsPage.clipLook.logoSet") : t("settingsPage.clipLook.logoUnset")}
+          status={hasLogo ? t("settingsPage.set") : t("settingsPage.notSet")}
+          on={hasLogo}
+        />
+        <LinkRow
+          to="/settings/credit"
+          title={t("settingsPage.clipLook.credit")}
+          body={creditText ? t("settingsPage.clipLook.creditSet", { text: creditText }) : t("settingsPage.clipLook.creditUnset")}
+          status={creditText ? t("settingsPage.set") : t("settingsPage.notSet")}
+          on={!!creditText}
+        />
+        <LinkRow to="/settings/hook-style" title={t("settingsPage.clipLook.hook")} body={t("settingsPage.clipLook.hookBody")} />
+      </Section>
 
-      <SettingSection
-        title="Clip Timing"
-        description="Extra footage kept around each clip so sentences aren't cut off."
-      >
-        <SettingRow
-          title="Lead-in"
-          description="Seconds kept before the start the AI picked."
-        >
-          <PaddingInput
+      <Section title={t("settingsPage.timing.title")} body={t("settingsPage.timing.body")}>
+        <Row title={t("settingsPage.timing.leadIn")} body={t("settingsPage.timing.leadInBody")}>
+          <SecondsStepper
+            field={t("settingsPage.timing.leadIn")}
             value={config.clipPadding.leadIn}
             disabled={!loaded}
-            onCommit={(leadIn) => savePadding({ ...config.clipPadding, leadIn })}
+            onCommit={(leadIn) => void savePadding({ ...config.clipPadding, leadIn })}
           />
-        </SettingRow>
-
-        <SettingRow
-          title="Tail-out"
-          description="Seconds kept after the end the AI picked. Usually the one that matters — subtitle cues tend to end while the speaker is still talking."
-        >
-          <PaddingInput
+        </Row>
+        <Row title={t("settingsPage.timing.tailOut")} body={t("settingsPage.timing.tailOutBody")}>
+          <SecondsStepper
+            field={t("settingsPage.timing.tailOut")}
             value={config.clipPadding.tailOut}
             disabled={!loaded}
-            onCommit={(tailOut) => savePadding({ ...config.clipPadding, tailOut })}
+            onCommit={(tailOut) => void savePadding({ ...config.clipPadding, tailOut })}
           />
-        </SettingRow>
+        </Row>
+        <p className="border-t border-[var(--color-border)] py-3.5 text-xs text-[var(--color-text-muted)] leading-relaxed">
+          {totalPadding === 0
+            ? t("settingsPage.timing.none")
+            : t("settingsPage.timing.total", { seconds: Number(totalPadding.toFixed(1)).toLocaleString() })}
+        </p>
+      </Section>
 
-        <SettingRow
-          title="Net effect"
-          description="Applied to the cut itself — captions shift with it, so they stay in sync."
-        >
-          <span className="text-sm font-medium text-[var(--color-text-secondary)]">
-            {config.clipPadding.leadIn + config.clipPadding.tailOut === 0
-              ? "Exact range, no padding"
-              : `+${(config.clipPadding.leadIn + config.clipPadding.tailOut).toFixed(1)}s per clip`}
-          </span>
-        </SettingRow>
-      </SettingSection>
-
-      <SettingSection
-        title="Output"
-        description="Branding and overlays applied to every clip."
-      >
-        <SettingRow
-          title="Watermark"
-          description={
-            config.watermark.enabled
-              ? "Enabled — overlay a logo on each clip"
-              : "Add a logo overlay to each clip"
-          }
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate("/settings/watermark")}
-            className="gap-2"
+      <Section title={t("settingsPage.gpu.title")}>
+        <Row title={t("settingsPage.gpu.toggle")} body={t("settingsPage.gpu.toggleBody")}>
+          <div className="flex items-center gap-2">
+            {savingGpu && <Loader2 aria-hidden className="h-4 w-4 animate-spin text-[var(--color-text-muted)]" />}
+            <Switch
+              checked={gpuOn}
+              onCheckedChange={(v) => void toggleGpu(v)}
+              disabled={!encoderAvailable || detecting || savingGpu || !loaded}
+            />
+          </div>
+        </Row>
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-[var(--color-border)] py-3.5 text-xs">
+          <div className="min-w-0 space-y-0.5 text-[var(--color-text-muted)]">
+            <p>{gpuStatus}</p>
+            <p>
+              {t("settingsPage.gpu.using", {
+                encoder: gpuOn ? detection?.encoder.name : t("settingsPage.gpu.cpu"),
+              })}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void runDetect()}
+            disabled={detecting}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-full px-2 text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] cursor-pointer disabled:cursor-wait focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
           >
-            Configure
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </SettingRow>
+            <RefreshCw aria-hidden className={cn("h-3.5 w-3.5", detecting && "animate-spin")} />
+            {t("settingsPage.gpu.redetect")}
+          </button>
+        </div>
+      </Section>
 
-        <SettingRow
-          title="Credit Text"
-          description={
-            config.creditWatermark.enabled
-              ? "Enabled — credit overlay on each clip"
-              : "Add source channel credit overlay"
-          }
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate("/settings/credit")}
-            className="gap-2"
-          >
-            Configure
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </SettingRow>
+      <Section title={t("settingsPage.integrations.title")}>
+        <LinkRow
+          to="/repliz"
+          title={t("settingsPage.integrations.repliz")}
+          body={replizOn ? t("settingsPage.integrations.replizOn") : t("settingsPage.integrations.replizOff")}
+          status={replizOn ? t("settingsPage.connected") : t("settingsPage.notSet")}
+          on={replizOn}
+        />
+      </Section>
 
-        <SettingRow
-          title="Hook Style"
-          description={
-            "Font, colors, and shape of the opening hook scene"
-          }
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate("/settings/hook-style")}
-            className="gap-2"
-          >
-            Configure
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </SettingRow>
-      </SettingSection>
-
-      <SettingSection
-        title="Integrations"
-        description="Connect external services for publishing your clips."
-      >
-        <SettingRow
-          title="Repliz"
-          description={
-            config.repliz.accessKey && config.repliz.secretKey
-              ? "Connected — upload clips to multiple platforms"
-              : "Upload clips to YouTube, TikTok, Instagram, and more"
-          }
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate("/settings/repliz")}
-            className="gap-2"
-          >
-            Configure
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </SettingRow>
-      </SettingSection>
-
-      <SettingSection
-        title="About"
-        description="Application information and credits."
-      >
-        <SettingRow
-          title="Open Source Credits"
-          description="Libraries and tools used in this application"
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate("/settings/credits")}
-            className="gap-2"
-          >
-            View
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </SettingRow>
-      </SettingSection>
+      <Section title={t("settingsPage.about.title")}>
+        <LinkRow to="/settings/credits" title={t("settingsPage.about.credits")} body={t("settingsPage.about.creditsBody")} />
+        <p className="border-t border-[var(--color-border)] py-3.5 text-xs text-[var(--color-text-muted)]">
+          {t("settingsPage.about.version", { version: APP_VERSION })}
+        </p>
+      </Section>
     </div>
   );
 }
 
-interface PaddingInputProps {
-  value: number;
-  disabled: boolean;
-  onCommit: (seconds: number) => void;
+function Section({ title, body, children }: { title: string; body?: string; children: React.ReactNode }) {
+  return (
+    <section className="mt-9">
+      <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{title}</h2>
+      {body && <p className="mt-1 text-sm text-[var(--color-text-secondary)] leading-relaxed">{body}</p>}
+      <div className="mt-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-4 [&>*:first-child]:border-t-0">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function Row({ title, body, children }: { title: string; body?: string; children?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-t border-[var(--color-border)] py-4">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-[var(--color-text-primary)]">{title}</p>
+        {body && <p className="mt-0.5 text-xs text-[var(--color-text-muted)] leading-relaxed">{body}</p>}
+      </div>
+      {children && <div className="shrink-0">{children}</div>}
+    </div>
+  );
+}
+
+/** A row that opens another settings page, with that setting's state on the right. */
+function LinkRow({ to, title, body, status, on }: { to: string; title: string; body: string; status?: string; on?: boolean }) {
+  return (
+    <Link
+      to={to}
+      className="group -mx-4 flex items-center justify-between gap-4 border-t border-[var(--color-border)] px-4 py-4 transition-colors hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-border-focus)] first:rounded-t-[var(--radius-lg)] last:rounded-b-[var(--radius-lg)]"
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-[var(--color-text-primary)]">{title}</span>
+        <span className="mt-0.5 block truncate text-xs text-[var(--color-text-muted)]">{body}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        {status && (
+          <span className={cn("text-xs", on ? "text-[var(--color-success)]" : "text-[var(--color-text-muted)]")}>{status}</span>
+        )}
+        <ChevronRight aria-hidden className="h-4 w-4 text-[var(--color-text-muted)] transition-transform group-hover:translate-x-0.5" />
+      </span>
+    </Link>
+  );
 }
 
 /**
- * Seconds input that commits on blur or Enter rather than per keystroke.
- *
- * It keeps its own draft string so a half-typed value ("1." on the way to
- * "1.5") isn't parsed and written back mid-edit, and re-syncs whenever the
- * stored value changes underneath it — which it does once on mount, when the
- * real config replaces the defaults.
+ * Seconds, in half-second steps with − and +, or typed. Typing commits on
+ * blur or Enter, so a half-typed "1." is never saved; anything unparseable
+ * snaps back to the stored value.
  */
-function PaddingInput({ value, disabled, onCommit }: PaddingInputProps) {
+function SecondsStepper({
+  field,
+  value,
+  disabled,
+  onCommit,
+}: {
+  field: string;
+  value: number;
+  disabled: boolean;
+  onCommit: (seconds: number) => void;
+}) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(String(value));
 
   useEffect(() => {
     setDraft(String(value));
   }, [value]);
 
-  const commit = () => {
-    const parsed = Number(draft.replace(",", "."));
-    // Anything unparseable or out of range snaps back to the stored value
-    // rather than silently writing a nonsense padding.
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      setDraft(String(value));
-      return;
-    }
-    const clamped = Math.min(Math.round(parsed * 10) / 10, MAX_CLIP_PADDING);
+  const apply = (next: number) => {
+    const clamped = Math.min(Math.max(0, Math.round(next * 10) / 10), MAX_CLIP_PADDING);
     setDraft(String(clamped));
     if (clamped !== value) onCommit(clamped);
   };
 
+  const commitDraft = () => {
+    const parsed = Number(draft.replace(",", "."));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setDraft(String(value));
+      return;
+    }
+    apply(parsed);
+  };
+
+  const step = "inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]";
+
   return (
-    <div className="flex items-center gap-2">
-      <Input
-        type="number"
-        inputMode="decimal"
-        min={0}
-        max={MAX_CLIP_PADDING}
-        step={0.5}
-        value={draft}
-        disabled={disabled}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-        }}
-        className="w-24 text-right"
-      />
-      <span className="text-sm text-[var(--color-text-muted)]">sec</span>
+    <div className="flex items-center gap-1 rounded-full border border-[var(--color-border)] p-0.5">
+      <button
+        type="button"
+        onClick={() => apply(value - 0.5)}
+        disabled={disabled || value <= 0}
+        aria-label={t("settingsPage.timing.decrease", { field })}
+        className={step}
+      >
+        <Minus aria-hidden className="h-4 w-4" />
+      </button>
+      <label className="flex items-baseline gap-0.5">
+        <input
+          type="text"
+          inputMode="decimal"
+          value={draft}
+          disabled={disabled}
+          aria-label={field}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitDraft}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          className="w-9 bg-transparent text-right text-sm font-semibold tabular-nums text-[var(--color-text-primary)] outline-none"
+        />
+        <span className="text-xs text-[var(--color-text-muted)]">{t("settingsPage.timing.unit")}</span>
+      </label>
+      <button
+        type="button"
+        onClick={() => apply(value + 0.5)}
+        disabled={disabled || value >= MAX_CLIP_PADDING}
+        aria-label={t("settingsPage.timing.increase", { field })}
+        className={step}
+      >
+        <Plus aria-hidden className="h-4 w-4" />
+      </button>
     </div>
   );
-}
-
-function gpuTypeLabel(type: string | null): string {
-  switch (type) {
-    case "nvidia":
-      return "NVIDIA";
-    case "amd":
-      return "AMD";
-    case "intel":
-      return "Intel";
-    case "apple":
-      return "Apple";
-    default:
-      return "GPU";
-  }
 }

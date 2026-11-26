@@ -1,37 +1,45 @@
 @import "tailwindcss";
 
 @theme {
-  /* Backgrounds */
-  --color-bg-primary: #FFFFFF;
-  --color-bg-secondary: #F8FAFC;
-  --color-bg-card: #F0F4FF;
-  --color-bg-sidebar: #FAFBFF;
-  --color-bg-hover: #E8EEFF;
-  --color-bg-input: #FFFFFF;
+  /* Backgrounds: charcoal rather than pure black, so text sits on it without
+     the glare of a #000 edge (owner's palette, 2026-11-26). Cards lean a little
+     blue-grey so a selected item reads as lifted. */
+  --color-bg-primary: #1F2125;
+  --color-bg-secondary: #1A1A1A;
+  --color-bg-card: #24272C;
+  --color-bg-sidebar: #171717;
+  --color-bg-hover: #2A2D33;
+  --color-bg-input: #1F2125;
 
   /* Borders */
-  --color-border: #E2E8F0;
-  --color-border-light: #F1F5F9;
-  --color-border-focus: #3B82F6;
+  --color-border: #2E3138;
+  --color-border-light: #26292E;
+  /* Focus rings use the red text tone: clearly visible on every surface. */
+  --color-border-focus: #EA7060;
 
-  /* Accent */
-  --color-accent: #2563EB;
-  --color-accent-hover: #1D4ED8;
-  --color-accent-light: #DBEAFE;
+  /* Accent, split by job. The button red (#D34033) is too dark to read as
+     text on charcoal (3.77:1), so red text, icons and small marks use the
+     lighter #EA7060, which clears 4.5:1 on every surface. */
+  --color-accent: #EA7060;
+  --color-accent-fill: #D34033;
+  --color-accent-hover: #C23A2E;
+  --color-accent-light: #2E1B19;
 
   /* Text */
-  --color-text-primary: #0F172A;
-  --color-text-secondary: #475569;
-  --color-text-muted: #94A3B8;
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #A0A0A0;
+  /* Lightest grey that still clears 4.5:1 on every surface, hover included. */
+  --color-text-muted: #92959B;
+  /* On the #D34033 fill: white is 4.61:1, black only 4.29:1. */
   --color-text-on-accent: #FFFFFF;
 
   /* Semantic */
-  --color-success: #16A34A;
-  --color-success-bg: #F0FDF4;
-  --color-warning: #CA8A04;
-  --color-warning-bg: #FEFCE8;
-  --color-error: #DC2626;
-  --color-error-bg: #FEF2F2;
+  --color-success: #4ADE80;
+  --color-success-bg: #15281E;
+  --color-warning: #FACC15;
+  --color-warning-bg: #2B2714;
+  --color-error: #EA7060;
+  --color-error-bg: #2E1B19;
 
   /* Radius */
   --radius-sm: 0.5rem;
@@ -40,17 +48,24 @@
   --radius-full: 9999px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.6);
 
   /* Font */
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* Plus Jakarta Sans per DESIGN.md, bundled so it works offline. */
+  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
   * {
     border-color: var(--color-border);
+    /* Focus-ring gaps default to white, which flashes on a black UI. */
+    --tw-ring-offset-color: var(--color-bg-secondary);
+  }
+
+  :root {
+    color-scheme: dark;
   }
 
   body {
@@ -84,4 +99,31 @@
   ::-webkit-scrollbar-thumb:hover {
     background: var(--color-text-muted);
   }
+}
+
+/* Overlay motion. Used only for modals that block the screen, so their arrival
+   and departure read as a transition instead of a jump. Applied through
+   motion-safe: variants, so "reduce motion" turns them off. */
+@keyframes cuplik-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes cuplik-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes cuplik-panel-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes cuplik-panel-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+
+/* A soft ring that pulses outward a few times to point at the next thing to
+   check. Used once per load, through motion-safe:, never as decoration. */
+@keyframes cuplik-attention {
+  0% { box-shadow: 0 0 0 0 rgba(234, 112, 96, 0.55); }
+  100% { box-shadow: 0 0 0 12px rgba(234, 112, 96, 0); }
 }

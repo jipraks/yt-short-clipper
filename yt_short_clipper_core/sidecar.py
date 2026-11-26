@@ -261,6 +261,28 @@ Return ONLY valid JSON in this exact format:
             log=emit_log,
         )
 
+    if command == "download_proxy":
+        from yt_short_clipper_core.proxy_downloader import download_proxy
+
+        url = payload.get("url")
+        session_dir = payload.get("session_dir")
+        if not url or not session_dir:
+            raise SidecarError("Missing url or session_dir")
+
+        def emit_log(message: str) -> None:
+            write_json({"event": "log", "message": message})
+
+        def emit_progress(percent: float) -> None:
+            write_json({"event": "progress", "percent": percent})
+
+        return download_proxy(
+            url=url,
+            session_dir=session_dir,
+            cookies_path=payload.get("cookies_path") or "",
+            log=emit_log,
+            progress=emit_progress,
+        )
+
     raise SidecarError(f"Unknown command: {command}")
 
 

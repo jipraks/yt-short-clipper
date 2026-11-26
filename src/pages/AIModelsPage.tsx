@@ -1,21 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  Coins,
-  ExternalLink,
-  KeyRound,
-  Loader2,
-  Plus,
-  RefreshCw,
-  Save,
-  ShieldCheck,
-  Sparkles,
-  Upload,
-} from "lucide-react";
+import { IS_STORE_BUILD } from "@/config/distribution";
+import { useEffect, useId, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { AlertTriangle, Check, Copy, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Combobox, type ComboboxGroup } from "@/components/ui/combobox";
 import { AccountKeyDialog } from "@/components/AccountKeyDialog";
 import { TopupDialog } from "@/components/TopupDialog";
 import {
@@ -23,27 +13,33 @@ import {
   FALLBACK_MODELS,
   presetForBaseUrl,
   signupLabel,
+  type AIProviderPreset,
 } from "@/config/aiProviders";
-import {
-  errorCode,
-  errorMessage,
-  fetchUsage,
-  jakartaDate,
-  type UsageLog,
-} from "@/hooks/account";
+import { errorCode, errorMessage, fetchUsage, jakartaDate, type Membership, type UsageLog } from "@/hooks/account";
 import { listAIModels, type CustomAISettings } from "@/hooks/appConfig";
 import { useConfigStore } from "@/stores/configStore";
-import {
-  chatModels,
-  ensureDefaultModel,
-  inappSupported,
-  useAccountStore,
-} from "@/stores/accountStore";
-import { formatSpendUsd, formatUsd } from "@/utils/format";
+import { chatModels, ensureDefaultModel, inappSupported, useAccountStore } from "@/stores/accountStore";
+import { formatIdr, formatSpendUsd, formatUsd } from "@/utils/format";
 import { cn } from "@/lib/utils";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
 
+const focusRing =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]";
+
+const pickerTrigger = cn(
+  "inline-flex h-11 w-full items-center justify-between gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 text-sm text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-hover)] disabled:opacity-60",
+  focusRing,
+);
+
+const textLink = cn(
+  "inline-flex min-h-9 items-center gap-1 rounded-[var(--radius-sm)] font-medium text-[var(--color-accent)] hover:underline cursor-pointer",
+  focusRing,
+);
+
+type AISource = "inapp" | "custom";
+
 export function AIModelsPage() {
+  const { t } = useTranslation();
   const { config, loaded, load, setAISource } = useConfigStore();
 
   useEffect(() => {
@@ -52,464 +48,574 @@ export function AIModelsPage() {
 
   if (!loaded) {
     return (
-      <div className="flex items-center justify-center py-20 text-[var(--color-text-muted)]">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading AI settings...
+      <div className="flex items-center justify-center gap-2 py-20 text-sm text-[var(--color-text-muted)]">
+        <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
+        {t("aiPage.loading")}
       </div>
     );
   }
 
   const source = config.ai.source;
 
-  // Writing config can fail — a locked file, a full disk — and a switch that
+  // Writing config can fail (a locked file, a full disk), and a switch that
   // silently does nothing is worse than one that says why.
-  const switchSource = (next: typeof source) => {
-    setAISource(next).catch((err) => toast.error(errorMessage(err)));
+  const switchSource = (next: AISource) => {
+    if (next === source) return;
+    setAISource(next).catch((err) => toast.error(t("aiPage.saveFailed", { reason: errorMessage(err) })));
   };
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold text-[var(--color-text-primary)]">AI Model</h1>
-        <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          One AI provider for the whole app — used for finding highlights and for
-          generating titles.
-        </p>
-      </div>
+    <div className="mx-auto max-w-2xl py-4">
+      <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">{t("aiPage.title")}</h1>
+      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{t("aiPage.subtitle")}</p>
 
-      <div className="grid grid-cols-2 gap-3">
-        <SourceCard
-          active={source === "inapp"}
-          icon={Coins}
-          title="In-app AI"
-          description="Top up with QRIS inside the app. No account, no API key to paste."
-          onClick={() => switchSource("inapp")}
-        />
-        <SourceCard
-          active={source === "custom"}
-          icon={KeyRound}
-          title="Own API key"
-          description="Any OpenAI-compatible endpoint, including your balance at ai.ytclip.org."
-          onClick={() => switchSource("custom")}
-        />
-      </div>
+      <SourceChoice value={source} onChange={switchSource} />
 
       {source === "inapp" ? <InappPanel /> : <CustomPanel />}
 
-      <SystemMessageCard />
+      <SystemMessageSection />
     </div>
   );
 }
 
-function SourceCard({
-  active,
-  icon: Icon,
-  title,
-  description,
-  onClick,
-}: {
-  active: boolean;
-  icon: typeof Coins;
-  title: string;
-  description: string;
-  onClick: () => void;
-}) {
+function SourceChoice({ value, onChange }: { value: AISource; onChange: (next: AISource) => void }) {
+  const { t } = useTranslation();
+  const options: { key: AISource; title: string; body: string }[] = [
+    { key: "inapp", title: t("aiPage.source.inapp"), body: t("aiPage.source.inappBody") },
+    { key: "custom", title: t("aiPage.source.custom"), body: t("aiPage.source.customBody") },
+  ];
+
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "text-left p-4 rounded-[var(--radius)] border transition-all duration-200 cursor-pointer",
-        active
-          ? "border-[var(--color-accent)] bg-[var(--color-accent-light)]"
-          : "border-[var(--color-border-light)] bg-[var(--color-bg-card)] hover:bg-[var(--color-bg-hover)]"
-      )}
+    <div
+      role="radiogroup"
+      aria-label={t("aiPage.source.label")}
+      className="mt-6 grid gap-1 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-1 sm:grid-cols-2"
     >
-      <div className="flex items-center gap-2 mb-1">
-        <Icon
-          className={cn(
-            "w-4 h-4",
-            active ? "text-[var(--color-accent)]" : "text-[var(--color-text-muted)]"
-          )}
-        />
-        <span
-          className={cn(
-            "text-sm font-semibold",
-            active ? "text-[var(--color-accent)]" : "text-[var(--color-text-primary)]"
-          )}
-        >
-          {title}
-        </span>
-      </div>
-      <p className="text-xs text-[var(--color-text-secondary)]">{description}</p>
-    </button>
+      {options.map((option) => {
+        const on = value === option.key;
+        return (
+          <button
+            key={option.key}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(option.key)}
+            className={cn(
+              "flex items-start gap-3 rounded-[var(--radius)] px-3 py-3 text-left transition-colors cursor-pointer",
+              focusRing,
+              on ? "bg-[var(--color-bg-hover)]" : "hover:bg-[var(--color-bg-hover)]/60",
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                on ? "border-[var(--color-accent)]" : "border-[var(--color-text-muted)]",
+              )}
+            >
+              {on && <span className="h-2 w-2 rounded-full bg-[var(--color-accent)]" />}
+            </span>
+            <span className="min-w-0">
+              <span
+                className={cn(
+                  "block text-sm font-medium",
+                  on ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-secondary)]",
+                )}
+              >
+                {option.title}
+              </span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-[var(--color-text-muted)]">{option.body}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-// ---------------------------------------------------------------------------
+function Section({
+  title,
+  body,
+  action,
+  children,
+}: {
+  title: string;
+  body?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mt-9">
+      <div className="flex items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{title}</h2>
+          {body && <p className="mt-1 text-sm leading-relaxed text-[var(--color-text-secondary)]">{body}</p>}
+        </div>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
+      <div className="mt-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-4 sm:p-5">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function Notice({ tone, children }: { tone: "warning" | "error"; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2.5 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+      <AlertTriangle
+        aria-hidden
+        className={cn(
+          "mt-0.5 h-4 w-4 shrink-0",
+          tone === "error" ? "text-[var(--color-error)]" : "text-[var(--color-warning)]",
+        )}
+      />
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
 // In-app
-// ---------------------------------------------------------------------------
 
 function InappPanel() {
-  const { activated, account, appInfo, busy, activate, refresh } = useAccountStore();
+  const { t } = useTranslation();
+  const { activated, appInfo, busy, activate } = useAccountStore();
   const supported = inappSupported(appInfo);
-
   const [dialog, setDialog] = useState<"topup" | "export" | "restore" | null>(null);
 
   const handleActivate = async () => {
     try {
       await activate();
-      toast.success("In-app AI activated");
-      // Catalogue unreachable is survivable — the picker below still offers it.
+      toast.success(t("aiPage.inactive.activated"));
+      // An unreachable catalogue is survivable: the picker below still offers it.
       await ensureDefaultModel().catch(() => undefined);
     } catch (err) {
-      toast.error(errorMessage(err));
+      toast.error(t("aiPage.inactive.activateFailed", { reason: errorMessage(err) }));
     }
   };
 
+  const dialogs = (
+    <>
+      {dialog === "topup" && <TopupDialog onClose={() => setDialog(null)} />}
+      {dialog === "export" && <AccountKeyDialog mode="export" onClose={() => setDialog(null)} />}
+      {dialog === "restore" && <AccountKeyDialog mode="restore" onClose={() => setDialog(null)} />}
+    </>
+  );
+
   if (!supported) {
     return (
-      <Card>
-        <CardContent className="flex items-start gap-3 py-2">
-          <AlertTriangle className="w-5 h-5 text-[var(--color-warning)] shrink-0 mt-0.5" />
-          <div className="space-y-2">
-            <p className="text-sm text-[var(--color-text-primary)] font-medium">
-              This version is too old for in-app AI
-            </p>
-            <p className="text-xs text-[var(--color-text-secondary)]">
-              Update to v{appInfo?.latestVersion} to use the in-app balance. The
-              rest of the app keeps working, and your own API key still works on
-              this version.
-            </p>
-            {appInfo?.downloadUrl && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => openUrl(appInfo.downloadUrl)}
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                Download the update
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      <Section title={t("aiPage.unsupported.title")}>
+        <Notice tone="warning">
+          <p>
+            {appInfo?.latestVersion
+              ? t("aiPage.unsupported.body", { version: appInfo.latestVersion })
+              : t("aiPage.unsupported.bodyNoVersion")}
+          </p>
+          {appInfo?.downloadUrl && !IS_STORE_BUILD && (
+            <Button className="mt-4 gap-2" onClick={() => openUrl(appInfo.downloadUrl)}>
+              {t("aiPage.unsupported.download")}
+              <ExternalLink aria-hidden className="h-4 w-4" />
+            </Button>
+          )}
+        </Notice>
+      </Section>
     );
   }
 
   if (!activated) {
     return (
       <>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-[var(--color-accent)]" />
-              In-app AI is not set up yet
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-[var(--color-text-secondary)]">
-              The wallet for this installation normally sets itself up when the
-              app starts — no email, no password, no website. That did not go
-              through, usually because there was no connection. It will try
-              again next launch, or you can retry now.
-            </p>
-
-            <div className="flex items-start gap-3 p-3 rounded-[var(--radius-sm)] bg-[var(--color-warning-bg)] border border-[var(--color-warning)]/30">
-              <ShieldCheck className="w-4 h-4 text-[var(--color-warning)] shrink-0 mt-0.5" />
-              <p className="text-xs text-[var(--color-text-secondary)]">
-                The wallet is held by a key stored on this computer. Export that
-                key and keep it safe — it is the only way to reach the balance
-                from another machine, and nobody can restore it for you.
-              </p>
-            </div>
-
-            <div className="flex gap-2">
-              <Button onClick={handleActivate} disabled={busy} className="flex-1 gap-2">
-                {busy ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Sparkles className="w-4 h-4" />
-                )}
-                Retry activation
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setDialog("restore")}
-                className="gap-2"
-              >
-                <Upload className="w-4 h-4" />
-                Restore
-              </Button>
-            </div>
-
-            <p className="text-xs text-[var(--color-text-muted)]">
-              Already have a balance at ai.ytclip.org? That is a separate wallet
-              — switch to "Own API key" and paste its key there.
-            </p>
-          </CardContent>
-        </Card>
-
-        {dialog === "restore" && (
-          <AccountKeyDialog mode="restore" onClose={() => setDialog(null)} />
-        )}
+        <Section title={t("aiPage.inactive.title")} body={t("aiPage.inactive.body")}>
+          <Notice tone="warning">{t("aiPage.inactive.keyNote")}</Notice>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button onClick={() => void handleActivate()} disabled={busy} className="gap-2">
+              {busy && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+              {t("aiPage.inactive.retry")}
+            </Button>
+            <Button variant="outline" onClick={() => setDialog("restore")}>
+              {t("aiPage.inactive.restore")}
+            </Button>
+          </div>
+          <p className="mt-4 border-t border-[var(--color-border)] pt-4 text-xs leading-relaxed text-[var(--color-text-muted)]">
+            {t("aiPage.inactive.webNote")}
+          </p>
+        </Section>
+        {dialogs}
       </>
     );
   }
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Coins className="w-5 h-5 text-[var(--color-accent)]" />
-              Balance
-            </CardTitle>
-            <Button variant="ghost" size="sm" onClick={refresh} className="gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5" />
-              Refresh
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {account?.blocked && (
-            <div className="flex items-start gap-3 p-3 rounded-[var(--radius-sm)] bg-[var(--color-error-bg)] border border-[var(--color-error)]/30">
-              <AlertTriangle className="w-4 h-4 text-[var(--color-error)] shrink-0 mt-0.5" />
-              <p className="text-xs text-[var(--color-text-secondary)]">
-                {account.blockedReason ??
-                  "This account has been disabled. Contact support@ytclip.org."}
-              </p>
-            </div>
-          )}
+      <BalanceSection onTopup={() => setDialog("topup")} />
+      <InappModelSection />
 
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-3xl font-bold text-[var(--color-text-primary)]">
-                {account ? formatUsd(account.balanceUsd) : "—"}
-              </p>
-              {account && (
-                <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                  Topped up {formatUsd(account.toppedUpUsd)} · spent{" "}
-                  {formatUsd(account.spentUsd)}
-                </p>
-              )}
-            </div>
-            <Button onClick={() => setDialog("topup")} className="gap-2">
-              <Plus className="w-4 h-4" />
-              Top Up
-            </Button>
-          </div>
+      <Section title={t("aiPage.key.title")} body={t("aiPage.key.body")}>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setDialog("export")}>
+            {t("aiPage.key.export")}
+          </Button>
+          <Button variant="outline" onClick={() => setDialog("restore")}>
+            {t("aiPage.key.restore")}
+          </Button>
+        </div>
+      </Section>
 
-          {account && (
-            <div className="text-xs text-[var(--color-text-muted)] space-y-1 pt-1 border-t border-[var(--color-border-light)]">
-              <p className="pt-2">
-                Account ID: <span className="font-mono">{account.accountId}</span>
-              </p>
-              <p>
-                Tier: {account.membership.tier}
-                {account.membership.tier !== "GOLD" &&
-                  ` · ${formatUsd(account.membership.remainingUsd)} more to reach GOLD`}
-              </p>
-              {account.membership.groupUrl && (
-                <button
-                  onClick={() => openUrl(account.membership.groupUrl!)}
-                  className="inline-flex items-center gap-1 text-[var(--color-accent)] hover:underline cursor-pointer"
-                >
-                  Join the VIP group
-                  <ExternalLink className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <InappModelCard />
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <KeyRound className="w-5 h-5 text-[var(--color-accent)]" />
-            Account Key
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-[var(--color-text-secondary)]">
-            Your balance lives behind one key held on this computer. Export it and
-            keep it somewhere private — it is the only way to reach the balance
-            after a reinstall or on another machine.
-          </p>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setDialog("export")} className="gap-2">
-              <KeyRound className="w-4 h-4" />
-              Export key
-            </Button>
-            <Button variant="outline" onClick={() => setDialog("restore")} className="gap-2">
-              <Upload className="w-4 h-4" />
-              Restore another
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <UsageCard />
-
-      {dialog === "topup" && <TopupDialog onClose={() => setDialog(null)} />}
-      {dialog === "export" && (
-        <AccountKeyDialog mode="export" onClose={() => setDialog(null)} />
-      )}
-      {dialog === "restore" && (
-        <AccountKeyDialog mode="restore" onClose={() => setDialog(null)} />
-      )}
+      <UsageSection />
+      {dialogs}
     </>
   );
 }
 
-function InappModelCard() {
+function BalanceSection({ onTopup }: { onTopup: () => void }) {
+  const { t } = useTranslation();
+  const { account, refreshing, error, refresh } = useAccountStore();
+
+  const refreshButton = (
+    <button
+      type="button"
+      onClick={() => void refresh()}
+      disabled={refreshing}
+      className={cn(
+        "inline-flex min-h-9 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] cursor-pointer disabled:cursor-wait",
+        focusRing,
+      )}
+    >
+      <RefreshCw aria-hidden className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+      {refreshing ? t("aiPage.balance.refreshing") : t("aiPage.balance.refresh")}
+    </button>
+  );
+
+  return (
+    <Section title={t("aiPage.balance.title")} body={t("aiPage.balance.body")} action={refreshButton}>
+      {account?.blocked && (
+        <div className="mb-5">
+          <Notice tone="error">{account.blockedReason ?? t("aiPage.balance.blocked")}</Notice>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          {account ? (
+            <>
+              <p className="text-4xl font-bold tabular-nums text-[var(--color-text-primary)]">
+                {formatUsd(account.balanceUsd)}
+              </p>
+              {account.balanceIdr > 0 && (
+                <p className="mt-1 text-sm tabular-nums text-[var(--color-text-secondary)]">
+                  {t("aiPage.balance.approxIdr", { amount: formatIdr(account.balanceIdr) })}
+                </p>
+              )}
+              <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+                {t("aiPage.balance.history", {
+                  topped: formatUsd(account.toppedUpUsd),
+                  spent: formatUsd(account.spentUsd),
+                })}
+              </p>
+            </>
+          ) : error ? (
+            <p className="text-sm text-[var(--color-error)]">{t("aiPage.balance.loadFailed", { reason: error })}</p>
+          ) : (
+            <p className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+              {refreshing && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+              {t("aiPage.balance.unknown")}
+            </p>
+          )}
+        </div>
+        <Button onClick={onTopup} className="px-6">
+          {t("aiPage.balance.topup")}
+        </Button>
+      </div>
+
+      {account && (
+        <>
+          <TierLine membership={account.membership} />
+          <AccountIdRow accountId={account.accountId} />
+        </>
+      )}
+    </Section>
+  );
+}
+
+function TierLine({ membership }: { membership: Membership }) {
+  const { t } = useTranslation();
+  const gold = membership.tier === "GOLD";
+  const progress =
+    membership.thresholdUsd > 0 ? Math.min(1, Math.max(0, membership.lifetimeTopupUsd / membership.thresholdUsd)) : 0;
+
+  return (
+    <div className="mt-5 border-t border-[var(--color-border)] pt-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p className="text-sm font-medium text-[var(--color-text-primary)]">
+          {gold ? t("aiPage.tier.gold") : t("aiPage.tier.regular")}
+        </p>
+        <p className="text-xs text-[var(--color-text-muted)]">
+          {gold ? t("aiPage.tier.goldBody") : t("aiPage.tier.progress", { amount: formatUsd(membership.remainingUsd) })}
+        </p>
+      </div>
+      {!gold && (
+        <div
+          role="progressbar"
+          aria-label={t("aiPage.tier.progressLabel")}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress * 100)}
+          className="mt-2.5 h-1 overflow-hidden rounded-full bg-[var(--color-bg-hover)]"
+        >
+          <div className="h-full rounded-full bg-[var(--color-text-secondary)]" style={{ width: `${progress * 100}%` }} />
+        </div>
+      )}
+      {membership.groupUrl && (
+        <button type="button" onClick={() => openUrl(membership.groupUrl!)} className={cn(textLink, "mt-1 text-xs")}>
+          {t("aiPage.tier.joinGroup")}
+          <ExternalLink aria-hidden className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AccountIdRow({ accountId }: { accountId: string }) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(accountId);
+      setCopied(true);
+      toast.success(t("aiPage.balance.copied"));
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error(t("aiPage.balance.copyFailed"));
+    }
+  };
+
+  return (
+    <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--color-border)] pt-3">
+      <p className="min-w-0 text-xs text-[var(--color-text-muted)]">
+        {t("aiPage.balance.accountId")}{" "}
+        <span className="select-all break-all font-mono text-[var(--color-text-secondary)]">{accountId}</span>
+      </p>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        aria-label={t("aiPage.balance.copyId")}
+        title={t("aiPage.balance.copyId")}
+        className={cn(
+          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] cursor-pointer",
+          focusRing,
+        )}
+      >
+        {copied ? <Check aria-hidden className="h-4 w-4 text-[var(--color-success)]" /> : <Copy aria-hidden className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+}
+
+function InappModelSection() {
+  const { t } = useTranslation();
   const model = useConfigStore((s) => s.config.ai.inapp.model);
   const setInappModel = useConfigStore((s) => s.setInappModel);
   const { models, modelsLoading, loadModels } = useAccountStore();
+  // loadModels swallows its own failure, so "tried and still empty" is the only
+  // way to tell a failed catalogue from one that has not been asked for yet.
+  const [attempted, setAttempted] = useState(false);
 
   useEffect(() => {
-    void loadModels();
+    void loadModels().finally(() => setAttempted(true));
   }, [loadModels]);
 
   const available = useMemo(() => chatModels(models), [models]);
   const selected = available.find((m) => m.name === model);
   const loading = modelsLoading && !models;
+  const failed = attempted && !modelsLoading && !models;
+
+  const groups = useMemo<ComboboxGroup[]>(() => {
+    const byProvider = new Map<string, ComboboxGroup>();
+    for (const m of available) {
+      const group = byProvider.get(m.provider) ?? { label: m.provider, options: [] };
+      group.options.push({ value: m.name, label: m.name });
+      byProvider.set(m.provider, group);
+    }
+    const list = [...byProvider.values()];
+    if (model && !selected) list.unshift({ label: t("aiPage.model.saved"), options: [{ value: model, label: model }] });
+    return list;
+  }, [available, model, selected, t]);
+
+  const perMillion = (perToken: number) => formatUsd(perToken * 1_000_000);
+  const meta: string[] = [];
+  if (selected) {
+    meta.push(selected.provider);
+    if (selected.inputCostPerToken !== null && selected.outputCostPerToken !== null) {
+      meta.push(
+        t("aiPage.model.price", {
+          input: perMillion(selected.inputCostPerToken),
+          output: perMillion(selected.outputCostPerToken),
+        }),
+      );
+    } else if (selected.inputCostPerToken !== null) {
+      meta.push(t("aiPage.model.priceInput", { input: perMillion(selected.inputCostPerToken) }));
+    } else {
+      meta.push(t("aiPage.model.priceUnknown"));
+    }
+    if (selected.maxInputTokens) meta.push(t("aiPage.model.context", { count: Math.round(selected.maxInputTokens / 1000) }));
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-[var(--color-accent)]" />
-          Model
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Loading the catalogue...
-          </div>
-        ) : (
-          <>
-            <select
-              value={model}
-              onChange={(e) =>
-                setInappModel(e.target.value).catch((err) =>
-                  toast.error(errorMessage(err))
-                )
-              }
-              className="w-full h-10 px-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-border-focus)]"
-            >
-              {!model && <option value="">Choose a model</option>}
-              {available.map((m) => (
-                <option key={m.id} value={m.name}>
-                  {m.name}
-                </option>
-              ))}
-              {model && !selected && <option value={model}>{model}</option>}
-            </select>
-
-            {selected && (
-              <p className="text-xs text-[var(--color-text-muted)]">
-                {selected.provider} ·{" "}
-                {selected.inputCostPerToken !== null
-                  ? `${formatUsd(selected.inputCostPerToken * 1_000_000)} in`
-                  : "price unavailable"}
-                {selected.outputCostPerToken !== null &&
-                  ` / ${formatUsd(selected.outputCostPerToken * 1_000_000)} out per 1M tokens`}
-                {selected.maxInputTokens
-                  ? ` · ${(selected.maxInputTokens / 1000).toFixed(0)}k context`
-                  : ""}
-              </p>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
+    <Section title={t("aiPage.model.title")} body={t("aiPage.model.body")}>
+      <Combobox
+        label={t("aiPage.model.label")}
+        value={model}
+        groups={groups}
+        onChange={(next) =>
+          setInappModel(next).catch((err) => toast.error(t("aiPage.saveFailed", { reason: errorMessage(err) })))
+        }
+        disabled={loading}
+        placeholder={loading ? t("aiPage.model.loading") : t("aiPage.model.choose")}
+        searchPlaceholder={t("aiPage.model.search")}
+        emptyText={t("aiPage.model.empty")}
+        triggerClassName={pickerTrigger}
+      />
+      {meta.length > 0 && <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-muted)]">{meta.join(" · ")}</p>}
+      {failed && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--color-text-muted)]">
+          <span>{t("aiPage.model.catalogFailed")}</span>
+          <button type="button" onClick={() => void loadModels(true)} className={textLink}>
+            {t("aiPage.model.retry")}
+          </button>
+        </div>
+      )}
+    </Section>
   );
 }
 
-function UsageCard() {
-  const [rows, setRows] = useState<UsageLog[] | null>(null);
-  const [empty, setEmpty] = useState(false);
-  const [loading, setLoading] = useState(true);
+type UsageState = { kind: "loading" } | { kind: "error" } | { kind: "ready"; rows: UsageLog[] };
+
+function UsageSection() {
+  const { t, i18n } = useTranslation();
+  const [state, setState] = useState<UsageState>({ kind: "loading" });
 
   useEffect(() => {
     fetchUsage(jakartaDate(-6), jakartaDate(), 1, 10)
-      .then((page) => setRows(page.data))
+      .then((page) => setState({ kind: "ready", rows: page.data }))
       .catch((err) => {
-        // An account that has never inferred is an empty state, not a failure.
-        if (errorCode(err) === "NOT_PROVISIONED") setEmpty(true);
-        else setRows([]);
-      })
-      .finally(() => setLoading(false));
+        // An account that has never made a request is empty, not broken.
+        if (errorCode(err) === "NOT_PROVISIONED") setState({ kind: "ready", rows: [] });
+        else setState({ kind: "error" });
+      });
   }, []);
 
-  const total = (rows ?? []).reduce((sum, row) => sum + row.spendUsd, 0);
+  const when = (iso: string) =>
+    new Date(iso).toLocaleString(i18n.language, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Usage — last 7 days</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Loading...
-          </div>
-        ) : empty || !rows?.length ? (
-          <p className="text-sm text-[var(--color-text-muted)]">
-            Nothing yet. Requests show up here with what each one cost.
+    <Section title={t("aiPage.usage.title")} body={t("aiPage.usage.body")}>
+      {state.kind === "loading" ? (
+        <p className="flex items-center gap-2 py-4 text-sm text-[var(--color-text-muted)]">
+          <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
+          {t("aiPage.usage.loading")}
+        </p>
+      ) : state.kind === "error" ? (
+        <p className="py-4 text-sm text-[var(--color-text-muted)]">{t("aiPage.usage.failed")}</p>
+      ) : state.rows.length === 0 ? (
+        <div className="py-6 text-center">
+          <p className="text-sm font-medium text-[var(--color-text-primary)]">{t("aiPage.usage.empty")}</p>
+          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-[var(--color-text-muted)]">
+            {t("aiPage.usage.emptyBody")}
           </p>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-sm text-[var(--color-text-secondary)]">
-              {rows.length} recent requests · {formatSpendUsd(total)}
-            </p>
-            <div className="divide-y divide-[var(--color-border-light)]">
-              {rows.map((row) => (
-                <div
-                  key={row.requestId}
-                  className="flex items-center justify-between py-1.5 text-xs"
-                >
-                  <div className="min-w-0">
-                    <p className="text-[var(--color-text-primary)] truncate">
+        </div>
+      ) : (
+        <>
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            {t("aiPage.usage.summary", {
+              count: state.rows.length,
+              total: formatSpendUsd(state.rows.reduce((sum, row) => sum + row.spendUsd, 0)),
+            })}
+          </p>
+          <div className="-mx-4 mt-3 overflow-x-auto sm:-mx-5">
+            <table className="w-full min-w-[28rem] text-xs">
+              <thead>
+                <tr className="text-left text-[var(--color-text-muted)]">
+                  <th scope="col" className="px-4 pb-2 font-medium sm:pl-5">{t("aiPage.usage.colModel")}</th>
+                  <th scope="col" className="px-3 pb-2 text-right font-medium">{t("aiPage.usage.colTokens")}</th>
+                  <th scope="col" className="px-3 pb-2 text-right font-medium">{t("aiPage.usage.colCost")}</th>
+                  <th scope="col" className="px-4 pb-2 text-right font-medium sm:pr-5">{t("aiPage.usage.colTime")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {state.rows.map((row) => (
+                  <tr key={row.requestId} className="border-t border-[var(--color-border)]">
+                    <td className="max-w-[14rem] truncate px-4 py-2.5 text-[var(--color-text-primary)] sm:pl-5" title={row.model}>
                       {row.model}
-                    </p>
-                    <p className="text-[var(--color-text-muted)]">
-                      {new Date(row.startedAt).toLocaleString()} ·{" "}
-                      {row.totalTokens.toLocaleString()} tokens
-                    </p>
-                  </div>
-                  <span
-                    className={
-                      row.status === "failure"
-                        ? "text-[var(--color-error)] shrink-0 ml-3"
-                        : "text-[var(--color-text-secondary)] shrink-0 ml-3"
-                    }
-                  >
-                    {row.status === "failure" ? "failed" : formatSpendUsd(row.spendUsd)}
-                  </span>
-                </div>
-              ))}
-            </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-[var(--color-text-secondary)]">
+                      {row.totalTokens.toLocaleString(i18n.language)}
+                    </td>
+                    <td
+                      className={cn(
+                        "px-3 py-2.5 text-right tabular-nums",
+                        row.status === "failure" ? "text-[var(--color-error)]" : "text-[var(--color-text-secondary)]",
+                      )}
+                    >
+                      {row.status === "failure" ? t("aiPage.usage.failedRow") : formatSpendUsd(row.spendUsd)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right text-[var(--color-text-muted)] sm:pr-5">
+                      {when(row.startedAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </>
+      )}
+    </Section>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Custom provider
-// ---------------------------------------------------------------------------
+// Own API key
+
+const PROVIDER_KEYS = ["ytclip", "apismart", "openai", "google", "groq", "custom"] as const;
+type ProviderKey = (typeof PROVIDER_KEYS)[number];
+
+function isProviderKey(key: string): key is ProviderKey {
+  return (PROVIDER_KEYS as readonly string[]).includes(key);
+}
+
+function useProviderText() {
+  const { t } = useTranslation();
+  return (preset: AIProviderPreset) =>
+    isProviderKey(preset.key)
+      ? { name: t(`aiPage.providers.${preset.key}.name`), body: t(`aiPage.providers.${preset.key}.body`) }
+      : { name: preset.name, body: preset.description };
+}
+
+function Field({
+  id,
+  label,
+  help,
+  children,
+}: {
+  id: string;
+  label: string;
+  help?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-[var(--color-text-primary)]">
+        {label}
+      </label>
+      {children}
+      {help && <p className="mt-1.5 text-xs leading-relaxed text-[var(--color-text-muted)]">{help}</p>}
+    </div>
+  );
+}
 
 function CustomPanel() {
+  const { t } = useTranslation();
+  const ids = useId();
+  const providerText = useProviderText();
   const settings = useConfigStore((s) => s.config.ai.custom);
   const setCustomAI = useConfigStore((s) => s.setCustomAI);
 
@@ -519,20 +625,26 @@ function CustomPanel() {
   const [apiKey, setApiKey] = useState(settings.apiKey || "");
   const [model, setModel] = useState(settings.model || "");
   const [models, setModels] = useState<string[]>(() =>
-    settings.model && !FALLBACK_MODELS.includes(settings.model)
-      ? [settings.model, ...FALLBACK_MODELS]
-      : FALLBACK_MODELS
+    settings.model && !FALLBACK_MODELS.includes(settings.model) ? [settings.model, ...FALLBACK_MODELS] : FALLBACK_MODELS,
   );
   const [loadingModels, setLoadingModels] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const selectedPreset = useMemo(
     () => AI_PROVIDER_PRESETS.find((p) => p.key === providerKey) ?? AI_PROVIDER_PRESETS[0],
-    [providerKey]
+    [providerKey],
   );
-
   const isCustomEndpoint = providerKey === "custom";
   const signupUrl = selectedPreset.signupUrl;
+
+  const providerGroups: ComboboxGroup[] = [
+    { options: AI_PROVIDER_PRESETS.map((p) => ({ value: p.key, label: providerText(p).name })) },
+  ];
+  const modelGroups: ComboboxGroup[] = [
+    {
+      options: (model && !models.includes(model) ? [model, ...models] : models).map((m) => ({ value: m, label: m })),
+    },
+  ];
 
   const handleProviderChange = (value: string) => {
     const preset = AI_PROVIDER_PRESETS.find((p) => p.key === value) ?? AI_PROVIDER_PRESETS[0];
@@ -542,21 +654,18 @@ function CustomPanel() {
 
   const handleLoadModels = async () => {
     if (!apiKey.trim()) {
-      toast.error("API key is required");
+      toast.error(t("aiPage.custom.needKey"));
       return;
     }
-
     setLoadingModels(true);
     try {
       const loaded = await listAIModels(apiKey, baseUrl);
       setModels(loaded);
-      if (loaded.length > 0 && !loaded.includes(model)) {
-        setModel(loaded[0]);
-      }
-      toast.success(`Loaded ${loaded.length} models`);
+      if (loaded.length > 0 && !loaded.includes(model)) setModel(loaded[0]);
+      toast.success(t("aiPage.custom.modelsLoaded", { count: loaded.length }));
     } catch (err) {
       console.error("Failed to load models", err);
-      toast.error(`Failed to load models: ${errorMessage(err)}`);
+      toast.error(t("aiPage.custom.modelsFailed", { reason: errorMessage(err) }));
       setModels((prev) => (prev.length ? prev : FALLBACK_MODELS));
     } finally {
       setLoadingModels(false);
@@ -565,154 +674,146 @@ function CustomPanel() {
 
   const handleSave = async () => {
     if (!apiKey.trim()) {
-      toast.error("API key is required");
+      toast.error(t("aiPage.custom.needKey"));
       return;
     }
     if (!model.trim()) {
-      toast.error("Model is required");
+      toast.error(t("aiPage.custom.needModel"));
       return;
     }
-
     setSaving(true);
     try {
       const next: CustomAISettings = { baseUrl, apiKey, model };
       await setCustomAI(next);
-      toast.success("AI provider saved");
+      toast.success(t("aiPage.custom.saved"));
+    } catch (err) {
+      toast.error(t("aiPage.saveFailed", { reason: errorMessage(err) }));
     } finally {
       setSaving(false);
     }
   };
 
+  const keyHint =
+    selectedPreset.apiKeyFormat === "optional"
+      ? t("aiPage.custom.apiKeyOptional")
+      : selectedPreset.apiKeyFormat
+        ? t("aiPage.custom.apiKeyFormat", { format: selectedPreset.apiKeyFormat })
+        : null;
+
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-[var(--color-accent)]" />
-            Provider Type
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <select
-            value={providerKey}
-            onChange={(e) => handleProviderChange(e.target.value)}
-            className="w-full h-10 px-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-border-focus)]"
-          >
-            {AI_PROVIDER_PRESETS.map((provider) => (
-              <option key={provider.key} value={provider.key}>
-                {provider.name}
-              </option>
-            ))}
-          </select>
-
-          <p className="text-xs text-[var(--color-text-muted)]">
-            {selectedPreset.description}
-            {selectedPreset.apiKeyFormat
-              ? ` · API key format: ${selectedPreset.apiKeyFormat}`
-              : ""}
+      <Section title={t("aiPage.custom.providerTitle")} body={t("aiPage.custom.providerBody")}>
+        <Combobox
+          label={t("aiPage.custom.providerLabel")}
+          value={providerKey}
+          groups={providerGroups}
+          onChange={handleProviderChange}
+          placeholder={t("aiPage.custom.providerLabel")}
+          searchPlaceholder={t("aiPage.custom.searchProvider")}
+          emptyText={t("aiPage.custom.noProvider")}
+          triggerClassName={pickerTrigger}
+        />
+        <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-muted)]">{providerText(selectedPreset).body}</p>
+        {signupUrl && (
+          <p className="mt-2 flex flex-wrap items-center gap-x-1 text-xs text-[var(--color-text-secondary)]">
+            {t("aiPage.custom.signup")}
+            <button type="button" onClick={() => openUrl(signupUrl)} className={textLink}>
+              {signupLabel(signupUrl)}
+              <ExternalLink aria-hidden className="h-3 w-3" />
+            </button>
           </p>
+        )}
+      </Section>
 
-          {signupUrl && (
-            <div className="flex items-start gap-3 p-3 rounded-[var(--radius-sm)] bg-[var(--color-accent-light)] border border-[var(--color-accent)]/30">
-              <Sparkles className="w-4 h-4 text-[var(--color-accent)] shrink-0 mt-0.5" />
-              <div className="text-xs text-[var(--color-text-secondary)] space-y-1">
-                <p>
-                  Don't have an account yet? Get your API key at{" "}
-                  <button
-                    type="button"
-                    onClick={() => openUrl(signupUrl)}
-                    className="inline-flex items-center gap-1 text-[var(--color-accent)] font-medium hover:underline cursor-pointer"
-                  >
-                    {signupLabel(signupUrl)}
-                    <ExternalLink className="w-3 h-3" />
-                  </button>
-                </p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <KeyRound className="w-5 h-5 text-[var(--color-accent)]" />
-            API Configuration
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <Section title={t("aiPage.custom.connectionTitle")}>
+        <div className="space-y-5">
           {isCustomEndpoint ? (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-[var(--color-text-secondary)]">
-                Base URL
-              </label>
-              <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-            </div>
+            <Field id={`${ids}-url`} label={t("aiPage.custom.baseUrl")} help={t("aiPage.custom.baseUrlHelp")}>
+              <Input
+                id={`${ids}-url`}
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                spellCheck={false}
+                className="h-11 font-mono"
+              />
+            </Field>
           ) : (
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-[var(--color-text-secondary)]">
-                Base URL
-              </label>
-              <div className="text-sm px-3 py-2 rounded-[var(--radius-sm)] bg-[var(--color-bg-secondary)] border border-[var(--color-border-light)] text-[var(--color-text-muted)]">
-                {baseUrl}
-              </div>
-            </div>
+            <Field id={`${ids}-url`} label={t("aiPage.custom.baseUrl")} help={t("aiPage.custom.baseUrlFixed")}>
+              <Input id={`${ids}-url`} value={baseUrl} readOnly className="h-11 font-mono text-[var(--color-text-muted)]" />
+            </Field>
           )}
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-[var(--color-text-secondary)]">
-              API Key
-            </label>
+          <Field
+            id={`${ids}-key`}
+            label={t("aiPage.custom.apiKey")}
+            help={keyHint ? `${keyHint}. ${t("aiPage.custom.apiKeyHelp")}` : t("aiPage.custom.apiKeyHelp")}
+          >
             <Input
+              id={`${ids}-key`}
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder={selectedPreset.apiKeyFormat ?? "Your API key"}
+              placeholder={t("aiPage.custom.apiKeyPlaceholder")}
+              autoComplete="off"
+              spellCheck={false}
+              className="h-11"
             />
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-[var(--color-text-secondary)]">
-              Model
-            </label>
+          <Field id={`${ids}-model`} label={t("aiPage.custom.model")} help={t("aiPage.custom.modelHelp")}>
             <div className="flex gap-2">
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="flex-1 h-10 px-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-border-focus)]"
+              <div className="min-w-0 flex-1">
+                <Combobox
+                  label={t("aiPage.custom.modelPick")}
+                  value={model}
+                  groups={modelGroups}
+                  onChange={setModel}
+                  placeholder={t("aiPage.custom.modelChoose")}
+                  searchPlaceholder={t("aiPage.custom.modelSearch")}
+                  emptyText={t("aiPage.custom.modelEmpty")}
+                  triggerClassName={pickerTrigger}
+                />
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => void handleLoadModels()}
+                disabled={loadingModels}
+                className="h-11 shrink-0 gap-2"
               >
-                {models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-              <Button variant="outline" onClick={handleLoadModels} disabled={loadingModels}>
-                {loadingModels ? <Loader2 className="w-4 h-4 animate-spin" /> : "Load"}
+                {loadingModels && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+                {loadingModels ? t("aiPage.custom.loadingModels") : t("aiPage.custom.loadModels")}
               </Button>
             </div>
             <Input
+              id={`${ids}-model`}
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              placeholder="Or type a model manually"
+              aria-label={t("aiPage.custom.modelManual")}
+              placeholder={t("aiPage.custom.modelManualPlaceholder")}
+              spellCheck={false}
+              className="mt-2 h-11 font-mono"
             />
-          </div>
-        </CardContent>
-      </Card>
+          </Field>
+        </div>
 
-      <Button onClick={handleSave} disabled={saving} className="w-full h-12 gap-2">
-        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-        Save AI Provider
-      </Button>
+        <div className="mt-6 flex justify-end border-t border-[var(--color-border)] pt-4">
+          <Button onClick={() => void handleSave()} disabled={saving} className="gap-2 px-6">
+            {saving && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+            {saving ? t("aiPage.custom.saving") : t("aiPage.custom.save")}
+          </Button>
+        </div>
+      </Section>
     </>
   );
 }
 
 /**
- * Shared by both sources — it is a prompt, not a credential, so switching
+ * Shared by both sources: it is a prompt, not a credential, so switching
  * provider should not cost the user the instructions they tuned.
  */
-function SystemMessageCard() {
+function SystemMessageSection() {
+  const { t } = useTranslation();
+  const id = useId();
   const stored = useConfigStore((s) => s.config.ai.systemMessage);
   const setSystemMessage = useConfigStore((s) => s.setSystemMessage);
   const [value, setValue] = useState(stored);
@@ -726,45 +827,36 @@ function SystemMessageCard() {
     setSaving(true);
     try {
       await setSystemMessage(value);
-      toast.success("System message saved");
+      toast.success(t("aiPage.system.saved"));
+    } catch (err) {
+      toast.error(t("aiPage.saveFailed", { reason: errorMessage(err) }));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          System Message
-          <span className="ml-2 text-sm font-normal text-[var(--color-text-muted)]">
-            (highlight finder only)
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <textarea
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Optional custom instructions for highlight detection"
-          className="w-full min-h-[180px] px-3 py-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-border-focus)] resize-y"
-        />
-        <p className="text-xs text-[var(--color-text-muted)]">
-          Available placeholders: {"{num_clips}"}, {"{video_context}"},{" "}
-          {"{transcript}"}, {"{user_direction}"}. Leave {"{user_direction}"} out and
-          any direction typed on the Create page is appended at the end instead.
-        </p>
-        {dirty && (
-          <Button onClick={save} disabled={saving} variant="outline" className="gap-2">
-            {saving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            Save system message
-          </Button>
+    <Section title={t("aiPage.system.title")} body={t("aiPage.system.body")}>
+      <textarea
+        id={id}
+        aria-label={t("aiPage.system.label")}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={t("aiPage.system.placeholder")}
+        className={cn(
+          "min-h-[180px] w-full resize-y rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 py-2.5 text-sm leading-relaxed text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)]",
+          focusRing,
         )}
-      </CardContent>
-    </Card>
+      />
+      <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-muted)]">{t("aiPage.system.help")}</p>
+      {dirty && (
+        <div className="mt-4 flex justify-end">
+          <Button variant="outline" onClick={() => void save()} disabled={saving} className="gap-2">
+            {saving && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+            {t("aiPage.system.save")}
+          </Button>
+        </div>
+      )}
+    </Section>
   );
 }

@@ -8,7 +8,7 @@ export interface MenuItem {
 }
 
 const MENU_URL = `${PUBLIC_API_BASE}/menu`;
-const CACHE_KEY = "ytclip.sidebar-menu.v1";
+const CACHE_KEY = "ytclip.sidebar-menu.v1"; // name kept so existing caches still load
 
 /** Guard rails on anything the server sends. */
 const MAX_ITEMS = 8;
@@ -16,7 +16,7 @@ const MAX_LABEL_CHARS = 32;
 
 /**
  * Shipped with the build and shown on first run, offline, or whenever the API
- * returns nothing usable — the sidebar must never render empty.
+ * returns nothing usable, so the Help menu never renders empty.
  */
 export const DEFAULT_MENU_ITEMS: MenuItem[] = [
   { id: "topup", label: "Topup AI Credit", icon: "coins", url: "https://ai.ytclip.org" },
@@ -75,7 +75,7 @@ export function sanitizeMenu(raw: unknown): MenuItem[] {
   return clean;
 }
 
-/** Last response that passed validation, so the sidebar is right on first paint. */
+/** Last response that passed validation, so the Help menu is right on first paint. */
 export function readCachedMenu(): MenuItem[] | null {
   try {
     const cached = localStorage.getItem(CACHE_KEY);

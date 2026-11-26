@@ -11,7 +11,9 @@ import {
   type HookStyleSettings,
   type ClipPaddingSettings,
   type ReplizSettings,
+  type AppLanguage,
 } from "@/hooks/appConfig";
+import i18n, { rememberLanguage } from "@/i18n";
 
 interface ConfigState {
   config: AppConfig;
@@ -28,6 +30,10 @@ interface ConfigState {
   setHookStyle: (hookStyle: HookStyleSettings) => Promise<void>;
   setClipPadding: (clipPadding: ClipPaddingSettings) => Promise<void>;
   setRepliz: (repliz: ReplizSettings) => Promise<void>;
+  setLanguage: (language: AppLanguage) => Promise<void>;
+  /** Switch language later, from Settings. Unlike setLanguage it leaves the Terms acceptance as it was. */
+  changeLanguage: (language: AppLanguage) => Promise<void>;
+  completeOnboarding: () => Promise<void>;
 }
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
@@ -37,6 +43,10 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   load: async () => {
     try {
       const config = await loadAppConfig();
+      if (config.language) {
+        rememberLanguage(config.language);
+        await i18n.changeLanguage(config.language);
+      }
       set({ config, loaded: true });
     } catch {
       set({ config: DEFAULT_CONFIG, loaded: true });
@@ -86,6 +96,36 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       account: { keyBackupConfirmedAt: new Date().toISOString() },
     };
     set({ config: await saveAppConfig(next) });
+  },
+
+  setLanguage: async (language) => {
+    // Save first: if config.json cannot be written, the UI keeps its language
+    // rather than switching to one that will not survive a restart.
+    // Picking a language on first launch also accepts the Terms; both land in
+    // one write so neither can be saved without the other.
+    const saved = await saveAppConfig({
+      ...get().config,
+      language,
+      termsAcceptedAt: new Date().toISOString(),
+    });
+    rememberLanguage(language);
+    await i18n.changeLanguage(language);
+    set({ config: saved });
+  },
+
+  changeLanguage: async (language) => {
+    const saved = await saveAppConfig({ ...get().config, language });
+    rememberLanguage(language);
+    await i18n.changeLanguage(language);
+    set({ config: saved });
+  },
+
+  completeOnboarding: async () => {
+    const saved = await saveAppConfig({
+      ...get().config,
+      onboardingCompletedAt: new Date().toISOString(),
+    });
+    set({ config: saved });
   },
 
   setGpuAcceleration: async (enabled) => {

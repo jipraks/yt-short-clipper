@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import type { AIRequestSettings } from "@/hooks/highlights";
 
+export type StepId = "subtitle" | "ai" | "prepare";
+
 export interface Step {
-  label: string;
+  id: StepId;
   status: "pending" | "running" | "done" | "error";
 }
 
@@ -38,8 +40,9 @@ interface ProcessingState {
 }
 
 const DEFAULT_STEPS: Step[] = [
-  { label: "Download subtitle", status: "pending" },
-  { label: "Find highlights with AI", status: "pending" },
+  { id: "subtitle", status: "pending" },
+  { id: "ai", status: "pending" },
+  { id: "prepare", status: "pending" },
 ];
 
 export const useProcessingStore = create<ProcessingState>((set) => ({

@@ -9,9 +9,13 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-[var(--color-accent)] text-[var(--color-text-on-accent)] shadow-[var(--shadow-sm)] hover:bg-[var(--color-accent-hover)]",
+          // A faded red block reads as a bright smear on charcoal, so a
+          // disabled primary button turns into a quiet dark one instead.
+          "bg-[var(--color-accent-fill)] text-[var(--color-text-on-accent)] shadow-[var(--shadow-sm)] hover:bg-[var(--color-accent-hover)] disabled:opacity-100 disabled:bg-[var(--color-bg-hover)] disabled:text-[var(--color-text-muted)] disabled:shadow-none",
         destructive:
-          "bg-[var(--color-error)] text-white shadow-[var(--shadow-sm)] hover:bg-[var(--color-error)]/90",
+          // White on the #EA7060 error tone is under 3:1, so destructive buttons
+          // use the button red, where white is 4.61:1.
+          "bg-[var(--color-accent-fill)] text-[var(--color-text-on-accent)] shadow-[var(--shadow-sm)] hover:bg-[var(--color-accent-hover)]",
         outline:
           "border border-[var(--color-border)] bg-[var(--color-bg-primary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]",
         secondary:

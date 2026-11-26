@@ -1,27 +1,15 @@
 import { useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { save } from "@tauri-apps/plugin-dialog";
-import {
-  AlertTriangle,
-  Check,
-  Copy,
-  Download,
-  Eye,
-  EyeOff,
-  KeyRound,
-  Loader2,
-  X,
-} from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, Eye, EyeOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  errorMessage,
-  exportAccountToFile,
-  exportAccountToken,
-} from "@/hooks/account";
+import { Modal } from "@/components/ui/modal";
+import { errorMessage, exportAccountToFile, exportAccountToken } from "@/hooks/account";
 import { useAccountStore } from "@/stores/accountStore";
 import { useConfigStore } from "@/stores/configStore";
+import { formatUsd } from "@/utils/format";
 
 type Mode = "export" | "restore";
 
@@ -34,44 +22,41 @@ interface AccountKeyDialogProps {
   onDone?: () => void;
 }
 
-export function AccountKeyDialog({
-  mode,
-  requireConfirm = false,
-  onClose,
-  onDone,
-}: AccountKeyDialogProps) {
+/**
+ * Same shape check the Rust side runs before any request, so an obviously
+ * wrong paste gets a plain-language reason instead of a backend message.
+ */
+function looksLikeToken(token: string): boolean {
+  const parts = token.split(".");
+  return token.startsWith("ytclip_dev_") && parts.length === 2 && parts.every((part) => part !== "");
+}
+
+export function AccountKeyDialog({ mode, requireConfirm = false, onClose, onDone }: AccountKeyDialogProps) {
+  const { t } = useTranslation();
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <Card className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <KeyRound className="w-5 h-5 text-[var(--color-accent)]" />
-              {mode === "export" ? "Account Key" : "Restore Account"}
-            </CardTitle>
-            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {mode === "export" ? (
-            <ExportPanel requireConfirm={requireConfirm} onClose={onClose} onDone={onDone} />
-          ) : (
-            <RestorePanel onClose={onClose} onDone={onDone} />
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    <Modal
+      title={mode === "export" ? t("billing.accountKey.exportTitle") : t("billing.accountKey.restoreTitle")}
+      closeLabel={t("billing.accountKey.close")}
+      onClose={onClose}
+      className="max-w-lg max-h-[90vh] overflow-y-auto"
+    >
+      {(close) =>
+        mode === "export" ? (
+          <ExportPanel requireConfirm={requireConfirm} onClose={close} onDone={onDone} />
+        ) : (
+          <RestorePanel onClose={close} onDone={onDone} />
+        )
+      }
+    </Modal>
   );
 }
 
 /** The warning block both panels lead with. Worth repeating; nobody reads it twice. */
 function DangerNote({ children }: { children: ReactNode }) {
   return (
-    <div className="flex items-start gap-3 p-3 rounded-[var(--radius-sm)] bg-[var(--color-error-bg)] border border-[var(--color-error)]/30">
-      <AlertTriangle className="w-4 h-4 text-[var(--color-error)] shrink-0 mt-0.5" />
-      <div className="text-xs text-[var(--color-text-secondary)] space-y-1.5">{children}</div>
+    <div className="mt-4 flex items-start gap-3 rounded-[var(--radius)] border border-[var(--color-error)]/30 bg-[var(--color-error-bg)] p-4">
+      <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-error)]" />
+      <div className="space-y-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">{children}</div>
     </div>
   );
 }
@@ -85,6 +70,7 @@ function ExportPanel({
   onClose: () => void;
   onDone?: () => void;
 }) {
+  const { t } = useTranslation();
   const accountId = useAccountStore((s) => s.accountId);
   const confirmKeyBackup = useConfigStore((s) => s.confirmKeyBackup);
 
@@ -105,7 +91,7 @@ function ExportPanel({
     try {
       setToken(await exportAccountToken());
     } catch (err) {
-      toast.error(errorMessage(err));
+      toast.error(t("billing.accountKey.export.revealFailed", { reason: errorMessage(err) }));
     } finally {
       setRevealing(false);
     }
@@ -117,9 +103,9 @@ function ExportPanel({
       await navigator.clipboard.writeText(value);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-      toast.success("Account key copied");
+      toast.success(t("billing.accountKey.export.copyDone"));
     } catch (err) {
-      toast.error(errorMessage(err));
+      toast.error(t("billing.accountKey.export.copyFailed", { reason: errorMessage(err) }));
     }
   };
 
@@ -127,15 +113,15 @@ function ExportPanel({
     setSaving(true);
     try {
       const path = await save({
-        title: "Save account key",
+        title: t("billing.accountKey.export.saveDialogTitle"),
         defaultPath: `ytclip-account-key-${accountId ?? "backup"}.txt`,
-        filters: [{ name: "Text", extensions: ["txt"] }],
+        filters: [{ name: t("billing.accountKey.export.fileFilter"), extensions: ["txt"] }],
       });
       if (!path) return;
       await exportAccountToFile(path);
-      toast.success("Account key saved");
+      toast.success(t("billing.accountKey.export.saved"));
     } catch (err) {
-      toast.error(errorMessage(err));
+      toast.error(t("billing.accountKey.export.saveFailed", { reason: errorMessage(err) }));
     } finally {
       setSaving(false);
     }
@@ -144,163 +130,207 @@ function ExportPanel({
   const confirm = async () => {
     try {
       await confirmKeyBackup();
-      // A caller that passed `onDone` has somewhere to go next — the top-up
+      // A caller that passed `onDone` has somewhere to go next: the top-up
       // flow continues into its amount step rather than closing on the user
       // who just pressed "Continue".
       if (onDone) onDone();
       else onClose();
     } catch (err) {
-      toast.error(errorMessage(err));
+      toast.error(t("billing.accountKey.export.confirmFailed", { reason: errorMessage(err) }));
     }
   };
 
   return (
-    <div className="space-y-4">
+    <>
+      <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+        {t("billing.accountKey.export.intro")}
+      </p>
+
       <DangerNote>
         <p>
-          <strong>Anyone who has this key can spend your balance.</strong> Do not
-          share it, and do not leave it on screen while recording.
+          <strong className="font-semibold text-[var(--color-text-primary)]">
+            {t("billing.accountKey.export.warnSpendTitle")}
+          </strong>{" "}
+          {t("billing.accountKey.export.warnSpendBody")}
         </p>
         <p>
-          <strong>This is the only way to recover your balance.</strong> If you
-          lose it — reinstall, new laptop, dead disk — the balance is gone for
-          good. Nobody can restore it, support included.
+          <strong className="font-semibold text-[var(--color-text-primary)]">
+            {t("billing.accountKey.export.warnRecoverTitle")}
+          </strong>{" "}
+          {t("billing.accountKey.export.warnRecoverBody")}
         </p>
         <p>
-          <strong>Top-ups are not refundable.</strong>
+          <strong className="font-semibold text-[var(--color-text-primary)]">
+            {t("billing.accountKey.export.warnRefund")}
+          </strong>
         </p>
       </DangerNote>
 
       {accountId && (
-        <div className="text-xs text-[var(--color-text-muted)]">
-          Account ID: <span className="font-mono">{accountId}</span> — safe to
-          quote to support.
-        </div>
+        <p className="mt-4 text-xs text-[var(--color-text-muted)]">
+          {t("billing.accountKey.export.accountId")}:{" "}
+          <span className="font-mono text-[var(--color-text-secondary)]">{accountId}</span>.{" "}
+          {t("billing.accountKey.export.accountIdNote")}
+        </p>
       )}
 
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-[var(--color-text-secondary)]">
-            Your account key
-          </label>
-          <Button variant="ghost" size="sm" onClick={reveal} disabled={revealing}>
-            {revealing ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : token ? (
-              <EyeOff className="w-3.5 h-3.5" />
-            ) : (
-              <Eye className="w-3.5 h-3.5" />
-            )}
-            {token ? "Hide" : "Show"}
-          </Button>
-        </div>
-        <div className="px-3 py-2.5 rounded-[var(--radius-sm)] bg-[var(--color-bg-secondary)] border border-[var(--color-border-light)] font-mono text-xs break-all text-[var(--color-text-primary)] min-h-[44px] flex items-center">
-          {token ?? "••••••••••••••••••••••••••••••••••••••••"}
-        </div>
+      <div className="mt-5 mb-1.5 flex items-center justify-between gap-2">
+        <span id="account-key-label" className="text-xs font-medium text-[var(--color-text-muted)]">
+          {t("billing.accountKey.export.keyLabel")}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => void reveal()}
+          disabled={revealing}
+          aria-pressed={token !== null}
+          aria-label={token ? t("billing.accountKey.export.hideAria") : t("billing.accountKey.export.showAria")}
+          className="-mr-2 h-9 gap-1.5 px-3 text-sm"
+        >
+          {revealing ? (
+            <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
+          ) : token ? (
+            <EyeOff aria-hidden className="h-4 w-4" />
+          ) : (
+            <Eye aria-hidden className="h-4 w-4" />
+          )}
+          {token ? t("billing.accountKey.export.hide") : t("billing.accountKey.export.show")}
+        </Button>
+      </div>
+      <div
+        aria-labelledby="account-key-label"
+        className="flex min-h-[48px] items-center break-all rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg-input)] px-4 py-3 font-mono text-xs text-[var(--color-text-primary)]"
+      >
+        {token ?? (
+          <span className="font-sans text-sm text-[var(--color-text-muted)]">
+            {t("billing.accountKey.export.hiddenNote")}
+          </span>
+        )}
       </div>
 
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={copy} className="flex-1 gap-2">
-          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-          Copy
-        </Button>
-        <Button variant="outline" onClick={saveToFile} disabled={saving} className="flex-1 gap-2">
-          {saving ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+      <div className="mt-3 flex gap-2">
+        <Button variant="outline" onClick={() => void copy()} className="h-10 flex-1 gap-2">
+          {copied ? (
+            <Check aria-hidden className="h-4 w-4 text-[var(--color-success)]" />
           ) : (
-            <Download className="w-4 h-4" />
+            <Copy aria-hidden className="h-4 w-4" />
           )}
-          Save to file
+          {copied ? t("billing.accountKey.export.copied") : t("billing.accountKey.export.copy")}
+        </Button>
+        <Button variant="outline" onClick={() => void saveToFile()} disabled={saving} className="h-10 flex-1 gap-2">
+          {saving ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : <Download aria-hidden className="h-4 w-4" />}
+          {t("billing.accountKey.export.saveFile")}
         </Button>
       </div>
 
       {requireConfirm ? (
         <>
-          <label className="flex items-start gap-2.5 text-sm text-[var(--color-text-secondary)] cursor-pointer">
+          <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-4 text-sm leading-relaxed text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
             <input
               type="checkbox"
               checked={acknowledged}
               onChange={(e) => setAcknowledged(e.target.checked)}
-              className="mt-0.5 w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--color-accent-fill)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
             />
-            <span>
-              I have saved my account key somewhere safe, and I understand that
-              losing it means losing the balance permanently.
-            </span>
+            <span>{t("billing.accountKey.export.confirmLabel")}</span>
           </label>
-          <Button onClick={confirm} disabled={!acknowledged} className="w-full">
-            Continue to top up
+          <Button onClick={() => void confirm()} disabled={!acknowledged} className="mt-4 h-11 w-full">
+            {t("billing.accountKey.export.continue")}
           </Button>
         </>
       ) : (
-        <Button variant="outline" onClick={onClose} className="w-full">
-          Done
+        <Button onClick={onClose} className="mt-6 h-11 w-full">
+          {t("billing.accountKey.export.done")}
         </Button>
       )}
-    </div>
+    </>
   );
 }
 
 function RestorePanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
+  const { t } = useTranslation();
   const { activated, account, restore, busy } = useAccountStore();
   const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
-    if (!token.trim()) {
-      toast.error("Paste your account key first");
+    const value = token.trim();
+    if (!value) {
+      setError(t("billing.accountKey.restore.errorEmpty"));
       return;
     }
+    if (!looksLikeToken(value)) {
+      setError(t("billing.accountKey.restore.errorShape"));
+      return;
+    }
+    setError(null);
     try {
-      const restored = await restore(token.trim());
-      toast.success(`Account restored — balance $${restored.balanceUsd.toFixed(2)}`);
+      const restored = await restore(value);
+      toast.success(t("billing.accountKey.restore.success", { balance: formatUsd(restored.balanceUsd) }));
       onDone?.();
       onClose();
     } catch (err) {
-      toast.error(errorMessage(err));
+      setError(t("billing.accountKey.restore.errorFailed", { reason: errorMessage(err) }));
     }
   };
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-[var(--color-text-secondary)]">
-        Paste the account key you exported from your other installation. The
-        balance travels with the key.
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+        {t("billing.accountKey.restore.intro")}
       </p>
 
       {activated && (
         <DangerNote>
           <p>
-            This device already has an account
-            {account ? ` with $${account.balanceUsd.toFixed(2)} on it` : ""}.
-            Restoring another key detaches it from this device — make sure you
-            have exported its key first, or that balance becomes unreachable.
+            {account
+              ? t("billing.accountKey.restore.replaceWarnBalance", { balance: formatUsd(account.balanceUsd) })
+              : t("billing.accountKey.restore.replaceWarn")}
           </p>
         </DangerNote>
       )}
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-[var(--color-text-secondary)]">
-          Account key
-        </label>
-        <Input
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="ytclip_dev_..."
-          className="font-mono text-xs"
-          autoComplete="off"
-          spellCheck={false}
-        />
-      </div>
+      <label htmlFor="restore-key" className="mt-5 mb-1.5 block text-xs font-medium text-[var(--color-text-muted)]">
+        {t("billing.accountKey.restore.keyLabel")}
+      </label>
+      <Input
+        id="restore-key"
+        value={token}
+        onChange={(e) => {
+          setToken(e.target.value);
+          if (error) setError(null);
+        }}
+        placeholder={t("billing.accountKey.restore.placeholder")}
+        className="font-mono text-xs"
+        autoComplete="off"
+        spellCheck={false}
+        aria-invalid={error !== null}
+        aria-describedby={error ? "restore-key-error" : "restore-key-hint"}
+      />
+      {error ? (
+        <p id="restore-key-error" role="alert" className="mt-2 text-xs leading-relaxed text-[var(--color-error)] break-words">
+          {error}
+        </p>
+      ) : (
+        <p id="restore-key-hint" className="mt-2 text-xs text-[var(--color-text-muted)]">
+          {t("billing.accountKey.restore.hint")}
+        </p>
+      )}
 
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={onClose} className="flex-1">
-          Cancel
+      <div className="mt-6 flex gap-2">
+        <Button type="button" variant="outline" onClick={onClose} className="h-11 flex-1">
+          {t("billing.accountKey.restore.cancel")}
         </Button>
-        <Button onClick={submit} disabled={busy} className="flex-1 gap-2">
-          {busy && <Loader2 className="w-4 h-4 animate-spin" />}
-          Restore
+        <Button type="submit" disabled={busy} className="h-11 flex-1 gap-2">
+          {busy && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+          {busy ? t("billing.accountKey.restore.restoring") : t("billing.accountKey.restore.submit")}
         </Button>
       </div>
-    </div>
+    </form>
   );
 }

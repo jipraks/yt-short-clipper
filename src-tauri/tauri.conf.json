@@ -1,6 +1,6 @@
 {
   "productName": "YTShortClipperV2",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "identifier": "com.jipraks.ytshortclipper-v2",
   "build": {
     "frontendDist": "../dist",
@@ -9,9 +9,15 @@
   "app": {
     "windows": [
       {
-        "title": "YT Short Clipper v2",
-        "width": 960,
-        "height": 680,
+        "title": "Cuplik",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
+        "maximized": true,
+        "theme": "Dark",
+        "backgroundColor": "#1A1A1A",
         "resizable": true,
         "decorations": true,
         "transparent": false

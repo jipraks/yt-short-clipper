@@ -134,6 +134,18 @@ def process_selected_highlights(
 
     keep_original = options.get("reframeMode") == REFRAME_ORIGINAL
 
+    # The credit text may say "{channel}"; fill it with this video's channel so
+    # the placeholder is never burned into a clip as-is.
+    credit = ai.get("credit_watermark")
+    if isinstance(credit, dict) and "{channel}" in (credit.get("text") or ""):
+        channel = ""
+        try:
+            with open(session_path / "session_data.json", "r", encoding="utf-8") as f:
+                channel = (json.load(f).get("video_info") or {}).get("channel") or ""
+        except Exception:
+            pass
+        ai = {**ai, "credit_watermark": {**credit, "text": credit["text"].replace("{channel}", channel).strip()}}
+
     lead_in, tail_out = _resolve_padding(ai)
     log(f"Clip padding: {lead_in:.1f}s before / {tail_out:.1f}s after each range")
     if keep_original:

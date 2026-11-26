@@ -10,6 +10,9 @@ export interface Highlight {
   hook_text: string;
   duration_seconds: number;
   transcript_text?: string;
+  /** The AI's start/end, kept once the user trims the clip in the editor. */
+  original_start_time?: string;
+  original_end_time?: string;
 }
 
 export interface VideoInfo {

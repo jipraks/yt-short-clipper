@@ -1,15 +1,57 @@
-# YT Short Clipper v2
+<p align="center">
+  <img src=".github/assets/readme/logo.png" alt="Cuplik logo" width="96" height="96">
+</p>
 
-A Windows desktop app that turns a long-form YouTube video into ready-to-post 9:16
-short-form clips — picking the highlights with an LLM, reframing to portrait, and burning
-in word-by-word captions.
+<h1 align="center">Cuplik</h1>
+
+<p align="center">
+  Turn long videos into short vertical clips with AI.<br>
+  Find the highlights, trim them on a timeline, render with captions and hooks, then schedule your posts.
+</p>
+
+<p align="center">
+  <a href="https://apps.microsoft.com/detail/9PHPBBFP7PPH">
+    <img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52">
+  </a>
+  <br>
+  <sub><b>Microsoft Store: coming soon.</b> The listing is in certification; the link goes live once it is approved.</sub>
+</p>
+
+> [!IMPORTANT]
+> **YT Short Clipper v2 is now Cuplik.** Same app, same features, new name and a fully
+> redesigned interface in Indonesian and English. Only the display name changed: the
+> repository, the app identifier (`com.jipraks.ytshortclipper-v2`), your saved settings,
+> projects, clips and AI balance all carry over. Release file names still use the old
+> name until the next release.
+
+<p align="center">
+  <img src=".github/assets/readme/banner.jpg" alt="Cuplik: turn long videos into short vertical clips with AI" width="100%">
+</p>
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![The editor: AI-scored highlights with transcript and a trim timeline](.github/assets/readme/01-editor.jpg) | ![The render dialog: choose the video shape, captions, hook, logo and credit](.github/assets/readme/02-render.jpg) |
+| **Editor.** The AI scores every highlight; trim each one on the timeline with the transcript beside it. | **Render.** Pick the video shape and what goes on top, with a live example of the result. |
+| ![The Clips page: every finished 9:16 video in one place](.github/assets/readme/03-clips.jpg) | ![Clip detail: AI-written title and description, scheduled to many accounts through Repliz](.github/assets/readme/04-detail.jpg) |
+| **Clips.** Every finished video in one place, each linked to the project it came from. | **Post.** AI writes the title and description; Repliz schedules it to many accounts at once. |
+
+<sub>Screenshots use stock footage (Mixkit) and invented demo data.</sub>
+
+## About
+
+Cuplik (formerly **YT Short Clipper v2**) is a Windows desktop app that turns a long-form
+YouTube video into ready-to-post 9:16 short-form clips: it picks the highlights with an
+LLM, reframes to portrait, and burns in word-by-word captions.
 
 **Stack:** React 19 + TypeScript + Vite · Tauri v2 (Rust shell) · Python sidecar (yt-dlp,
 FFmpeg, MediaPipe)
 
 > **Windows only.** The build scripts are PowerShell, the app ships as a portable zip with
-> a WebView2 bootstrapper, and caption/hook rendering reads fonts from `C:\Windows\Fonts`.
-> Nothing is macOS/Linux-ready today.
+> a WebView2 bootstrapper (and soon through the Microsoft Store as an MSIX), and
+> caption/hook rendering reads fonts from `C:\Windows\Fonts`. Nothing is macOS/Linux-ready
+> today.
 
 > **Status: beta.** Expect rough edges and breaking changes between releases.
 
@@ -35,16 +77,19 @@ FFmpeg, MediaPipe)
 - **Word-by-word captions** burned from YouTube's original subtitle track — no
   transcription API and no local Whisper model required
 - Optional **hook text overlays** and logo/credit watermarks
-- **Direct upload** to the Repliz social media platform
+- **Clips and Projects** pages: every finished video in one place, linked back to the
+  project (one per source video) it came from
+- **Direct upload** to the Repliz social media platform, with a scheduled-post summary
+- **Indonesian and English** interface, switchable in Settings
 
 ### AI providers
 
 One provider serves the whole app — highlight detection and title generation both — and
-is chosen once in **AI Models**. There are two ways to power it.
+is chosen once on the **AI** page. There are two ways to power it.
 
 **In-app AI.** The app provisions its own wallet for this installation on first launch: no
 registration, no email, no API key to paste. Top up with QRIS from inside the app and the
-balance shows in the sidebar. The wallet is held by a key kept in the OS credential store
+balance shows in the top navigation bar. The wallet is held by a key kept in the OS credential store
 (Windows Credential Manager, Keychain, libsecret) — never in a config file. There is no
 server-side recovery, so export that key and keep it somewhere safe: it is the only way
 to reach the balance from another machine, and nobody can restore it for you. Top-ups are
@@ -69,7 +114,7 @@ built-in selection principles:
 - Array order is clip order, so "clip pertama dari …" lands first in the list.
 - Anything the direction rules out is left out.
 
-Custom system messages (in **AI Models**) can place the direction with a
+Custom highlight instructions (on the **AI** page) can place the direction with a
 `{user_direction}` placeholder; without it the direction is appended at the end.
 
 ## YouTube cookies
@@ -80,7 +125,8 @@ video. You supply your own — nothing is bundled.
 1. Open YouTube in your browser and make sure you are logged in.
 2. Install the **Get cookies.txt LOCALLY** extension.
 3. Run it while on `youtube.com` and export `cookies.txt`.
-4. In the app, click **Upload YouTube cookies to continue** and pick that file.
+4. In the app, choose that file in the setup's cookies step, or later from the cookie
+   status on the **Create** page.
 
 Notes:
 
@@ -145,6 +191,19 @@ raised it to v2.3.0). Deno drives `remote_components` for YouTube's JS challenge
 under-floor binary breaks extraction quietly — and `fetch-deps.ps1` will not replace an
 existing `deno.exe` without `-Force`.
 
+## Microsoft Store build
+
+```bash
+npm run build:msix                 # Store package (unsigned; the Store signs it)
+npm run build:msix -- -TestCert    # also a self-signed copy to install locally
+```
+
+`scripts/build-msix.ps1` builds the frontend with `VITE_STORE_BUILD=1` (no self-update
+prompt; the Store updates the app), builds the release exe, stages the same layout as the
+portable zip and packs `build/msix/Cuplik_<version>_x64.msix`. The package identity comes
+from `store/msix/identity.json`; the listing copy and image list live in
+`store/LISTING.md`. Rebuild the sidecar first whenever the Python code changed.
+
 ## Release Build
 
 ```bash
@@ -190,17 +249,15 @@ all.
 If you fork this, point these at your own backend or strip them out — see
 [`src/hooks/`](src/hooks/) and [`src-tauri/src/commands/analytics.rs`](src-tauri/src/commands/analytics.rs).
 
-### Sidebar links
+### Help menu links
 
-The external links at the bottom of the sidebar are served by
-`api-v2.ytclip.org/api/public/v1/menu`, so they can change without an app release.
-The four page routes above them stay hardcoded.
+The external links in the **Help** menu of the top navigation bar are served by
+`api-v2.ytclip.org/api/public/v1/menu`, so they can change without an app release. The
+page routes in the bar (Create, Clips, Projects, AI, Repliz) stay hardcoded.
 
-Icons are named by the API as kebab-case strings and resolved through the allowlist in
-[`src/config/menuIcons.ts`](src/config/menuIcons.ts) — an icon must exist there before
-the server can use it. Responses are validated (https-only URLs, capped count and label
-length, bad entries dropped individually), cached, and fall back to
-`DEFAULT_MENU_ITEMS` in [`src/hooks/menu.ts`](src/hooks/menu.ts) when offline.
+Responses are validated (https-only URLs, capped count and label length, bad entries
+dropped individually), cached, and fall back to `DEFAULT_MENU_ITEMS` in
+[`src/hooks/menu.ts`](src/hooks/menu.ts) when offline.
 
 ## Sponsors
 

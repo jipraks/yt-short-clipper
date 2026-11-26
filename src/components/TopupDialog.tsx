@@ -1,17 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import QRCode from "qrcode";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Loader2,
-  QrCode,
-  RefreshCw,
-  X,
-} from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import { AccountKeyDialog } from "@/components/AccountKeyDialog";
 import {
   createTopup,
@@ -23,6 +17,7 @@ import {
 } from "@/hooks/account";
 import { useAccountStore } from "@/stores/accountStore";
 import { useConfigStore } from "@/stores/configStore";
+import { cn } from "@/lib/utils";
 import { countdownTo, formatIdr, formatUsd } from "@/utils/format";
 
 /** How often the open dialog asks the server. The API throttles at 4s anyway. */
@@ -35,6 +30,7 @@ interface TopupDialogProps {
 }
 
 export function TopupDialog({ onClose }: TopupDialogProps) {
+  const { t } = useTranslation();
   const backedUp = useConfigStore((s) => s.config.account.keyBackupConfirmedAt);
   const [topup, setTopup] = useState<Topup | null>(null);
 
@@ -54,157 +50,224 @@ export function TopupDialog({ onClose }: TopupDialogProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <Card className="max-w-md w-full max-h-[90vh] overflow-y-auto">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <QrCode className="w-5 h-5 text-[var(--color-accent)]" />
-              Top Up Balance
-            </CardTitle>
-            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {topup ? (
-            <InvoicePanel
-              topup={topup}
-              onReplace={() => setTopup(null)}
-              onClose={onClose}
-            />
-          ) : (
-            <AmountPanel onCreated={setTopup} />
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    <Modal
+      title={t("billing.topup.title")}
+      closeLabel={t("billing.topup.close")}
+      onClose={onClose}
+      className="max-h-[90vh] overflow-y-auto"
+    >
+      {(close) =>
+        topup ? (
+          <InvoicePanel topup={topup} onReplace={() => setTopup(null)} onDone={close} />
+        ) : (
+          <AmountPanel onCreated={setTopup} />
+        )
+      }
+    </Modal>
+  );
+}
+
+/** 0 choose amount, 1 scan, 2 paid. A step before `current` shows as done. */
+function Steps({ current }: { current: 0 | 1 | 2 }) {
+  const { t } = useTranslation();
+  const labels = [t("billing.topup.steps.amount"), t("billing.topup.steps.pay"), t("billing.topup.steps.paid")];
+  const allDone = current === 2;
+
+  return (
+    <ol aria-label={t("billing.topup.steps.label")} className="mt-4 flex items-center gap-2 text-xs">
+      {labels.map((label, i) => {
+        const done = i < current || allDone;
+        const active = i === current;
+        return (
+          <li key={label} aria-current={active ? "step" : undefined} className="flex min-w-0 items-center gap-2">
+            {i > 0 && <span aria-hidden className="h-px w-4 shrink-0 bg-[var(--color-border)]" />}
+            <span
+              aria-hidden
+              className={cn(
+                "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold",
+                done
+                  ? "border-[var(--color-success)] text-[var(--color-success)]"
+                  : active
+                    ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                    : "border-[var(--color-border)] text-[var(--color-text-muted)]",
+              )}
+            >
+              {done ? <Check className="h-3 w-3" /> : i + 1}
+            </span>
+            <span
+              className={cn(
+                "truncate",
+                active ? "font-semibold text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]",
+              )}
+            >
+              {label}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
 function AmountPanel({ onCreated }: { onCreated: (topup: Topup) => void }) {
+  const { t } = useTranslation();
   const [rate, setRate] = useState<FeeRate | null>(null);
+  const [rateError, setRateError] = useState<string | null>(null);
   const [amount, setAmount] = useState(10);
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
+  const loadRate = useCallback(() => {
+    setRateError(null);
     fetchFeeRate()
       .then((value) => {
         setRate(value);
-        setAmount((current) =>
-          Math.min(Math.max(current, value.minTopupUsd), value.maxTopupUsd)
-        );
+        setAmount((current) => Math.min(Math.max(current, value.minTopupUsd), value.maxTopupUsd));
       })
-      .catch((err) => toast.error(errorMessage(err)));
+      .catch((err) => setRateError(errorMessage(err)));
   }, []);
+
+  useEffect(() => {
+    loadRate();
+  }, [loadRate]);
 
   // Quoted locally so dragging the amount does not cost a request per
   // keystroke. The invoice the server issues is the one that counts.
   const idrAmount = rate ? Math.round(amount * rate.usdIdrRate) : null;
-  const feeIdr =
-    rate && idrAmount !== null
-      ? Math.round((idrAmount * rate.platformFeePercent) / 100)
-      : null;
+  const feeIdr = rate && idrAmount !== null ? Math.round((idrAmount * rate.platformFeePercent) / 100) : null;
   const totalIdr = idrAmount !== null && feeIdr !== null ? idrAmount + feeIdr : null;
 
-  const withinRange =
-    !rate || (amount >= rate.minTopupUsd && amount <= rate.maxTopupUsd);
+  const withinRange = !rate || (amount >= rate.minTopupUsd && amount <= rate.maxTopupUsd);
 
   const create = async () => {
     setCreating(true);
     try {
       onCreated(await createTopup(amount));
     } catch (err) {
-      toast.error(errorMessage(err));
+      toast.error(t("billing.topup.amount.createFailed", { reason: errorMessage(err) }));
     } finally {
       setCreating(false);
     }
   };
 
+  const presets = QUICK_AMOUNTS.filter((value) => !rate || (value >= rate.minTopupUsd && value <= rate.maxTopupUsd));
+
   return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-[var(--color-text-secondary)]">
-          Amount (USD)
-        </label>
-        <Input
-          type="number"
-          value={amount}
-          min={rate?.minTopupUsd ?? 1}
-          max={rate?.maxTopupUsd ?? 1000}
-          step={1}
-          onChange={(e) => setAmount(Math.floor(Number(e.target.value) || 0))}
-        />
-        <div className="flex gap-2">
-          {QUICK_AMOUNTS.filter(
-            (value) =>
-              !rate || (value >= rate.minTopupUsd && value <= rate.maxTopupUsd)
-          ).map((value) => (
-            <Button
+    <>
+      <Steps current={0} />
+      <p className="mt-4 text-sm leading-relaxed text-[var(--color-text-secondary)]">{t("billing.topup.amount.body")}</p>
+
+      <label htmlFor="topup-amount" className="mt-5 mb-1.5 block text-xs font-medium text-[var(--color-text-muted)]">
+        {t("billing.topup.amount.label")}
+      </label>
+      <Input
+        id="topup-amount"
+        type="number"
+        value={amount}
+        min={rate?.minTopupUsd ?? 1}
+        max={rate?.maxTopupUsd ?? 1000}
+        step={1}
+        aria-invalid={!withinRange}
+        aria-describedby={!withinRange ? "topup-amount-error" : undefined}
+        onChange={(e) => setAmount(Math.floor(Number(e.target.value) || 0))}
+      />
+      <div role="group" aria-label={t("billing.topup.amount.presets")} className="mt-2 flex gap-2">
+        {presets.map((value) => {
+          const selected = amount === value;
+          return (
+            <button
               key={value}
-              variant={amount === value ? "secondary" : "outline"}
-              size="sm"
+              type="button"
+              aria-pressed={selected}
               onClick={() => setAmount(value)}
-              className="flex-1"
+              className={cn(
+                "h-9 flex-1 rounded-[var(--radius-sm)] border text-sm font-medium cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]",
+                selected
+                  ? "border-[var(--color-accent)] bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]"
+                  : "border-[var(--color-border)] bg-[var(--color-bg-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]",
+              )}
             >
               ${value}
-            </Button>
-          ))}
-        </div>
-        {rate && !withinRange && (
-          <p className="text-xs text-[var(--color-error)]">
-            Choose between {formatUsd(rate.minTopupUsd)} and{" "}
-            {formatUsd(rate.maxTopupUsd)}.
-          </p>
-        )}
+            </button>
+          );
+        })}
       </div>
+      {rate && !withinRange && (
+        <p id="topup-amount-error" className="mt-2 text-xs text-[var(--color-error)]">
+          {t("billing.topup.amount.outOfRange", {
+            min: formatUsd(rate.minTopupUsd),
+            max: formatUsd(rate.maxTopupUsd),
+          })}
+        </p>
+      )}
 
-      <div className="rounded-[var(--radius-sm)] border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] p-3 space-y-1.5 text-sm">
+      <div className="mt-5 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-4 text-sm">
         {rate ? (
           <>
-            <Row label={`Credit (${formatUsd(amount)})`} value={formatIdr(idrAmount ?? 0)} />
-            <Row
-              label={`Payment fee (${rate.platformFeePercent}%)`}
-              value={formatIdr(feeIdr ?? 0)}
-            />
-            <div className="border-t border-[var(--color-border-light)] pt-1.5">
-              <Row label="Total to pay" value={formatIdr(totalIdr ?? 0)} strong />
+            <div className="flex items-end justify-between gap-3">
+              <div>
+                <p className="text-xs text-[var(--color-text-muted)]">{t("billing.topup.amount.youPay")}</p>
+                <p className="mt-0.5 text-2xl font-bold tabular-nums text-[var(--color-text-primary)]">
+                  {formatIdr(totalIdr ?? 0)}
+                </p>
+              </div>
+              <p className="pb-1 text-sm font-semibold tabular-nums text-[var(--color-text-secondary)]">
+                {formatUsd(amount)}
+              </p>
             </div>
-            <p className="text-[11px] text-[var(--color-text-muted)] pt-1">
-              Rate: {formatIdr(rate.usdIdrRate)} per $1. The final amount is fixed
-              when the invoice is issued.
+            <div className="mt-3 space-y-1.5 border-t border-[var(--color-border)] pt-3">
+              <Row label={t("billing.topup.amount.credit", { usd: formatUsd(amount) })} value={formatIdr(idrAmount ?? 0)} />
+              <Row
+                label={t("billing.topup.amount.fee", { percent: rate.platformFeePercent })}
+                value={formatIdr(feeIdr ?? 0)}
+              />
+              <Row label={t("billing.topup.amount.total")} value={formatIdr(totalIdr ?? 0)} strong />
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-[var(--color-text-muted)]">
+              {t("billing.topup.amount.rate", { idr: formatIdr(rate.usdIdrRate) })}
             </p>
           </>
+        ) : rateError ? (
+          <div role="alert" className="flex items-start gap-2.5">
+            <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-error)]" />
+            <div className="min-w-0">
+              <p className="text-[var(--color-text-secondary)] break-words">
+                {t("billing.topup.amount.rateFailed", { reason: rateError })}
+              </p>
+              <button
+                type="button"
+                onClick={loadRate}
+                className="mt-1 inline-flex h-9 items-center rounded-[var(--radius-sm)] text-sm font-medium text-[var(--color-accent)] hover:underline cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+              >
+                {t("billing.topup.amount.retryRate")}
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="flex items-center gap-2 text-[var(--color-text-muted)]">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Loading rate...
+            <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
+            {t("billing.topup.amount.loadingRate")}
           </div>
         )}
       </div>
 
-      <Button
-        onClick={create}
-        disabled={creating || !rate || !withinRange}
-        className="w-full gap-2"
-      >
-        {creating && <Loader2 className="w-4 h-4 animate-spin" />}
-        Create QRIS invoice
+      <Button onClick={create} disabled={creating || !rate || !withinRange} className="mt-6 h-11 w-full gap-2">
+        {creating && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+        {creating ? t("billing.topup.amount.creating") : t("billing.topup.amount.create")}
       </Button>
-    </div>
+    </>
   );
 }
 
 function InvoicePanel({
   topup: initial,
   onReplace,
-  onClose,
+  onDone,
 }: {
   topup: Topup;
   onReplace: () => void;
-  onClose: () => void;
+  onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const refreshAccount = useAccountStore((s) => s.refresh);
   const [topup, setTopup] = useState(initial);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
@@ -237,11 +300,11 @@ function InvoicePanel({
         }
         return next;
       } catch (err) {
-        if (force) toast.error(errorMessage(err));
+        if (force) toast.error(t("billing.topup.pay.checkFailed", { reason: errorMessage(err) }));
         return null;
       }
     },
-    [topup.id, refreshAccount]
+    [topup.id, refreshAccount, t],
   );
 
   useEffect(() => {
@@ -263,129 +326,136 @@ function InvoicePanel({
     try {
       const next = await poll(true);
       if (next && next.status === "pending") {
-        toast.info("Payment not received yet. Give it a moment and try again.");
+        toast.info(t("billing.topup.pay.notYet"));
       }
     } finally {
       setChecking(false);
     }
   };
 
+  const usd = formatUsd(topup.usdAmount);
+  const idr = formatIdr(topup.totalIdr);
+
   if (topup.status === "paid") {
     return (
-      <div className="space-y-4 text-center py-2">
-        <CheckCircle2 className="w-12 h-12 text-[var(--color-success)] mx-auto" />
-        <div>
-          <p className="font-semibold text-[var(--color-text-primary)]">
-            {formatUsd(topup.usdAmount)} added
+      <>
+        <Steps current={2} />
+        <div role="status" className="mt-6 text-center">
+          <CheckCircle2 aria-hidden className="mx-auto h-12 w-12 text-[var(--color-success)]" />
+          <p className="mt-3 text-base font-semibold text-[var(--color-text-primary)]">
+            {t("billing.topup.paid.title", { usd })}
           </p>
-          <p className="text-sm text-[var(--color-text-muted)] mt-1">
-            Invoice {topup.id}
+          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{t("billing.topup.paid.body")}</p>
+          <p className="mt-2 font-mono text-xs text-[var(--color-text-muted)]">
+            {t("billing.topup.paid.invoice", { id: topup.id })}
           </p>
         </div>
-        <Button onClick={onClose} className="w-full">
-          Done
+        <Button onClick={onDone} className="mt-6 h-11 w-full">
+          {t("billing.topup.paid.done")}
         </Button>
-      </div>
+      </>
     );
   }
 
   if (settled) {
+    const [title, body] =
+      topup.status === "expired"
+        ? [t("billing.topup.ended.expiredTitle"), t("billing.topup.ended.expiredBody")]
+        : topup.status === "cancelled"
+          ? [t("billing.topup.ended.cancelledTitle"), t("billing.topup.ended.cancelledBody")]
+          : [t("billing.topup.ended.failedTitle"), t("billing.topup.ended.failedBody")];
     return (
-      <div className="space-y-4">
-        <div className="flex items-start gap-3 p-3 rounded-[var(--radius-sm)] bg-[var(--color-warning-bg)] border border-[var(--color-warning)]/30">
-          <AlertTriangle className="w-4 h-4 text-[var(--color-warning)] shrink-0 mt-0.5" />
-          <p className="text-xs text-[var(--color-text-secondary)]">
-            {topup.status === "expired"
-              ? "This QR code is no longer payable. Nothing was charged."
-              : `This invoice ended as "${topup.status}". Nothing was charged.`}
-          </p>
+      <>
+        <Steps current={1} />
+        <div
+          role="alert"
+          className="mt-5 flex items-start gap-3 rounded-[var(--radius)] border border-[var(--color-warning)]/30 bg-[var(--color-warning-bg)] p-4"
+        >
+          <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
+          <div>
+            <p className="text-sm font-semibold text-[var(--color-text-primary)]">{title}</p>
+            <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{body}</p>
+            <p className="mt-2 font-mono text-xs text-[var(--color-text-muted)]">
+              {t("billing.topup.pay.invoice", { id: topup.id })}
+            </p>
+          </div>
         </div>
-        <Button onClick={onReplace} className="w-full">
-          Create a new invoice
+        <Button onClick={onReplace} className="mt-6 h-11 w-full">
+          {t("billing.topup.ended.retry")}
         </Button>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="text-center space-y-1">
-        <p className="text-2xl font-bold text-[var(--color-text-primary)]">
-          {formatIdr(topup.totalIdr)}
-        </p>
-        <p className="text-xs text-[var(--color-text-muted)]">
-          for {formatUsd(topup.usdAmount)} of credit · invoice {topup.id}
+    <>
+      <Steps current={1} />
+
+      <div className="mt-5 text-center">
+        <p className="text-2xl font-bold tabular-nums text-[var(--color-text-primary)]">{idr}</p>
+        <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+          {t("billing.topup.pay.forCredit", { usd })}
+          <span aria-hidden> · </span>
+          <span className="font-mono">{t("billing.topup.pay.invoice", { id: topup.id })}</span>
         </p>
       </div>
 
-      <div className="flex justify-center">
+      <div className="mt-4 flex justify-center">
         {qrDataUrl ? (
           <img
             src={qrDataUrl}
-            alt="QRIS payment code"
-            className="w-[240px] h-[240px] rounded-[var(--radius-sm)] border border-[var(--color-border-light)] bg-white"
+            alt={t("billing.topup.pay.qrAlt", { idr })}
+            className="h-[240px] w-[240px] rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-white"
           />
         ) : (
-          <div className="w-[240px] h-[240px] flex items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-border-light)]">
-            <Loader2 className="w-6 h-6 animate-spin text-[var(--color-text-muted)]" />
+          <div
+            role="status"
+            aria-label={t("billing.topup.pay.qrLoading")}
+            className="flex h-[240px] w-[240px] items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-border)]"
+          >
+            <Loader2 aria-hidden className="h-6 w-6 animate-spin text-[var(--color-text-muted)]" />
           </div>
         )}
       </div>
 
-      <p className="text-xs text-center text-[var(--color-text-secondary)]">
-        Scan with any bank or e-wallet app. QRIS is exact-amount — pay
-        {" "}
-        {formatIdr(topup.totalIdr)}.
-        {countdown && (
-          <>
-            <br />
-            <span className="text-[var(--color-text-muted)]">
-              Expires in {countdown}
-            </span>
-          </>
-        )}
+      <div role="status" className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-[var(--color-text-primary)]">
+        <Loader2 aria-hidden className="h-4 w-4 animate-spin text-[var(--color-text-muted)]" />
+        {t("billing.topup.pay.waiting")}
+      </div>
+      <p className="mt-1 text-center text-xs tabular-nums text-[var(--color-text-muted)]">
+        {countdown
+          ? t("billing.topup.pay.expiresIn", { time: countdown })
+          : topup.expiresAt
+            ? t("billing.topup.pay.expiredChecking")
+            : null}
       </p>
 
-      <Button
-        variant="outline"
-        onClick={checkNow}
-        disabled={checking}
-        className="w-full gap-2"
-      >
-        {checking ? (
-          <Loader2 className="w-4 h-4 animate-spin" />
-        ) : (
-          <RefreshCw className="w-4 h-4" />
-        )}
-        I have paid
+      <p className="mt-4 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+        {t("billing.topup.pay.howTo", { idr })}
+      </p>
+      <p className="mt-1.5 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+        {t("billing.topup.pay.autoUpdate")}
+      </p>
+
+      <Button onClick={checkNow} disabled={checking} className="mt-6 h-11 w-full gap-2">
+        {checking && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+        {checking ? t("billing.topup.pay.checking") : t("billing.topup.pay.checkNow")}
       </Button>
 
-      <p className="text-[11px] text-center text-[var(--color-text-muted)]">
-        You can close this window. A payment that lands later is still credited,
-        and the balance will be right the next time you open the app.
-      </p>
-    </div>
+      <p className="mt-3 text-xs leading-relaxed text-[var(--color-text-muted)]">{t("billing.topup.pay.closeNote")}</p>
+    </>
   );
 }
 
-function Row({
-  label,
-  value,
-  strong,
-}: {
-  label: string;
-  value: string;
-  strong?: boolean;
-}) {
+function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex items-center justify-between gap-3">
       <span className="text-[var(--color-text-secondary)]">{label}</span>
       <span
-        className={
-          strong
-            ? "font-semibold text-[var(--color-text-primary)]"
-            : "text-[var(--color-text-primary)]"
-        }
+        className={cn(
+          "tabular-nums text-[var(--color-text-primary)]",
+          strong && "font-semibold",
+        )}
       >
         {value}
       </span>

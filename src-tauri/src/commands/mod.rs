@@ -1,5 +1,6 @@
 pub mod account;
 pub mod analytics;
+pub mod config_store;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -63,28 +64,12 @@ pub fn greet(name: &str) -> String {
 
 #[tauri::command]
 pub fn load_app_config(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let config_path = app_config_path(&app)?;
-    if !config_path.exists() {
-        return Ok(default_app_config());
-    }
-
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config.json: {e}"))?;
-    serde_json::from_str(&content).map_err(|e| format!("Failed to parse config.json: {e}"))
+    config_store::load(&cookies_dir(&app)?, default_app_config(), &config_store::OsSecretStore)
 }
 
 #[tauri::command]
 pub fn save_app_config(app: tauri::AppHandle, config: serde_json::Value) -> Result<serde_json::Value, String> {
-    let config_path = app_config_path(&app)?;
-    if let Some(parent) = config_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Failed to create app data directory: {e}"))?;
-    }
-
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config: {e}"))?;
-    fs::write(&config_path, content).map_err(|e| format!("Failed to save config.json: {e}"))?;
-
-    Ok(config)
+    config_store::save(&cookies_dir(&app)?, config, &config_store::OsSecretStore)
 }
 
 #[tauri::command]
@@ -93,6 +78,22 @@ pub fn save_cookies(app: tauri::AppHandle, content: String) -> Result<CookiesSta
     fs::create_dir_all(&cookies_dir).map_err(|e| format!("Failed to create app data directory: {e}"))?;
 
     let cookies_path = cookies_dir.join("cookies.txt");
+
+    // Check before writing: a wrong file (another site's cookies, a logged-out
+    // export) must not overwrite cookies that still work.
+    if find_auth_cookies(&content).is_empty() {
+        return Ok(CookiesStatus {
+            exists: cookies_path.exists(),
+            valid: false,
+            path: cookies_path.to_string_lossy().to_string(),
+            found_cookies: vec![],
+            error: Some(
+                "Invalid cookies.txt - missing YouTube authentication cookies. Please export fresh cookies while logged into YouTube."
+                    .to_string(),
+            ),
+        });
+    }
+
     fs::write(&cookies_path, content).map_err(|e| format!("Failed to save cookies.txt: {e}"))?;
 
     read_cookies_status_for_path(cookies_path)
@@ -236,13 +237,55 @@ fn cookies_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
+    /// The session folder's name (e.g. 20261126_123301): stable, and what
+    /// clips point back to.
+    id: String,
     session_dir: String,
     url: String,
     title: String,
     channel: String,
     highlight_count: usize,
+    /// Clips on disk with a finished video, counted from the folder rather
+    /// than trusted from session_data.json.
+    rendered_count: usize,
     status: String,
     created_at: String,
+}
+
+/// One finished clip, read from clips/clip_NNN/data.json next to its video.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipSummary {
+    session_id: String,
+    session_dir: String,
+    session_title: String,
+    channel: String,
+    url: String,
+    highlight_index: i64,
+    clip_path: String,
+    title: String,
+    hook_text: String,
+    description: String,
+    start_time: String,
+    end_time: String,
+    duration_seconds: f64,
+    reframe_mode: String,
+    processed_at: String,
+}
+
+/// Finished clip folders in a session, oldest highlight first.
+fn finished_clip_dirs(session_path: &std::path::Path) -> Vec<PathBuf> {
+    let clips = session_path.join("clips");
+    let Ok(entries) = fs::read_dir(&clips) else {
+        return vec![];
+    };
+    let mut dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && p.join("master.mp4").exists())
+        .collect();
+    dirs.sort();
+    dirs
 }
 
 fn sessions_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -282,6 +325,8 @@ pub fn list_sessions(app: tauri::AppHandle) -> Result<Vec<SessionSummary>, Strin
         let highlights = value.get("highlights").and_then(|h| h.as_array());
 
         summaries.push(SessionSummary {
+            id: entry.file_name().to_string_lossy().to_string(),
+            rendered_count: finished_clip_dirs(&path).len(),
             session_dir: value
                 .get("session_dir")
                 .and_then(|v| v.as_str())
@@ -322,6 +367,80 @@ pub fn list_sessions(app: tauri::AppHandle) -> Result<Vec<SessionSummary>, Strin
     Ok(summaries)
 }
 
+/// Every finished clip across all sessions, newest first, each pointing back
+/// to the session it came from.
+#[tauri::command]
+pub fn list_clips(app: tauri::AppHandle) -> Result<Vec<ClipSummary>, String> {
+    let dir = sessions_dir(&app)?;
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+    let str_of = |v: &serde_json::Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
+
+    let mut clips: Vec<ClipSummary> = Vec::new();
+    let entries = fs::read_dir(&dir).map_err(|e| format!("Failed to read sessions dir: {e}"))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let clip_dirs = finished_clip_dirs(&path);
+        if clip_dirs.is_empty() {
+            continue;
+        }
+        let session: serde_json::Value = fs::read_to_string(path.join("session_data.json"))
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_default();
+        let video_info = session.get("video_info").cloned().unwrap_or_default();
+        let session_id = entry.file_name().to_string_lossy().to_string();
+
+        for clip_dir in clip_dirs {
+            let data: serde_json::Value = fs::read_to_string(clip_dir.join("data.json"))
+                .ok()
+                .and_then(|c| serde_json::from_str(&c).ok())
+                .unwrap_or_default();
+            // Older clips have no data.json; the folder name still gives the index.
+            let index_from_name = clip_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.strip_prefix("clip_"))
+                .and_then(|n| n.parse::<i64>().ok())
+                .unwrap_or(-1);
+            let description = {
+                let d = str_of(&data, "youtube_description");
+                if d.is_empty() { str_of(&data, "description") } else { d }
+            };
+            clips.push(ClipSummary {
+                session_id: session_id.clone(),
+                session_dir: path.to_string_lossy().to_string(),
+                session_title: video_info.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled").to_string(),
+                channel: str_of(&video_info, "channel"),
+                url: str_of(&session, "url"),
+                highlight_index: data.get("highlight_index").and_then(|v| v.as_i64()).unwrap_or(index_from_name),
+                clip_path: clip_dir.join("master.mp4").to_string_lossy().to_string(),
+                title: str_of(&data, "title"),
+                hook_text: str_of(&data, "hook_text"),
+                description,
+                start_time: str_of(&data, "start_time"),
+                end_time: str_of(&data, "end_time"),
+                duration_seconds: data.get("duration_seconds").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                reframe_mode: str_of(&data, "reframe_mode"),
+                processed_at: str_of(&data, "processed_at"),
+            });
+        }
+    }
+
+    // Newest first; ISO timestamps sort as strings. Ties keep highlight order.
+    clips.sort_by(|a, b| {
+        b.processed_at
+            .cmp(&a.processed_at)
+            .then_with(|| b.session_id.cmp(&a.session_id))
+            .then_with(|| a.highlight_index.cmp(&b.highlight_index))
+    });
+    Ok(clips)
+}
+
 #[tauri::command]
 pub fn load_session(session_dir: String) -> Result<serde_json::Value, String> {
     let data_file = PathBuf::from(&session_dir).join("session_data.json");
@@ -331,6 +450,38 @@ pub fn load_session(session_dir: String) -> Result<serde_json::Value, String> {
     let content =
         fs::read_to_string(&data_file).map_err(|e| format!("Failed to read session: {e}"))?;
     serde_json::from_str(&content).map_err(|e| format!("Failed to parse session: {e}"))
+}
+
+/// Replace the highlights in a session's session_data.json, keeping every other
+/// field. The highlight editor uses this to persist trimmed start/end times.
+#[tauri::command]
+pub fn save_session_highlights(
+    session_dir: String,
+    highlights: serde_json::Value,
+) -> Result<(), String> {
+    if !highlights.is_array() {
+        return Err("highlights must be an array".to_string());
+    }
+    let data_file = PathBuf::from(&session_dir).join("session_data.json");
+    if !data_file.exists() {
+        return Err("Session data not found".to_string());
+    }
+    let content =
+        fs::read_to_string(&data_file).map_err(|e| format!("Failed to read session: {e}"))?;
+    let mut data: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse session: {e}"))?;
+    let obj = data
+        .as_object_mut()
+        .ok_or("Session data is not an object")?;
+    obj.insert("highlights".to_string(), highlights);
+
+    let serialized = serde_json::to_string_pretty(&data)
+        .map_err(|e| format!("Failed to serialize session: {e}"))?;
+    // Write to a sibling temp file first so a crash mid-write cannot truncate
+    // the session.
+    let tmp_file = data_file.with_extension("json.tmp");
+    fs::write(&tmp_file, serialized).map_err(|e| format!("Failed to write session: {e}"))?;
+    fs::rename(&tmp_file, &data_file).map_err(|e| format!("Failed to save session: {e}"))
 }
 
 #[tauri::command]
@@ -543,10 +694,6 @@ fn base64_encode(data: &[u8]) -> String {
         }
     }
     out
-}
-
-fn app_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(cookies_dir(app)?.join("config.json"))
 }
 
 /// Mirrors `DEFAULT_CONFIG` in `src/hooks/appConfig.ts`.
@@ -973,6 +1120,141 @@ fn call_sidecar_streaming_process(
     }
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(tag = "type")]
+pub enum ProxyEvent {
+    Log { message: String },
+    Progress { percent: f64 },
+}
+
+/// Download a low-resolution copy of the whole source video into the session
+/// folder, so the highlight editor can play and scrub it before anything is
+/// rendered. Returns the proxy's absolute path. Reuses an existing proxy.
+#[tauri::command]
+pub async fn download_proxy(
+    app: tauri::AppHandle,
+    url: String,
+    session_dir: String,
+    on_event: Channel<ProxyEvent>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !PathBuf::from(&session_dir).join("session_data.json").exists() {
+            return Err("Not a session directory".to_string());
+        }
+
+        let cookies_path = cookies_dir(&app)?.join("cookies.txt");
+        let cookies_status = read_cookies_status_for_path(cookies_path.clone())?;
+        if !cookies_status.valid {
+            return Err(cookies_status
+                .error
+                .unwrap_or_else(|| "Invalid cookies".to_string()));
+        }
+
+        let payload = serde_json::json!({
+            "url": url,
+            "session_dir": session_dir,
+            "cookies_path": cookies_path.to_string_lossy(),
+        });
+
+        let result = call_sidecar_streaming_proxy(&app, "download_proxy", payload, &on_event)?;
+        result
+            .get("path")
+            .and_then(|p| p.as_str())
+            .map(|p| p.to_string())
+            .ok_or_else(|| "Sidecar did not return a proxy path".to_string())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
+}
+
+fn call_sidecar_streaming_proxy(
+    app: &tauri::AppHandle,
+    command: &str,
+    payload: serde_json::Value,
+    on_event: &Channel<ProxyEvent>,
+) -> Result<serde_json::Value, String> {
+    let request = serde_json::json!({
+        "id": "tauri-request",
+        "command": command,
+        "payload": payload,
+    });
+
+    let mut child = spawn_sidecar(app)?;
+
+    // Drop stdin after the request so the sidecar's stdin loop ends.
+    {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or("Failed to open sidecar stdin")?;
+        writeln!(stdin, "{}", request)
+            .map_err(|e| format!("Failed to write sidecar request: {e}"))?;
+    }
+
+    let stdout = child.stdout.take().ok_or("Failed to open sidecar stdout")?;
+    let reader = BufReader::new(stdout);
+
+    let mut final_response: Option<SidecarResponse> = None;
+
+    for line in reader.lines() {
+        let Ok(line) = line else { continue };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+            continue;
+        };
+
+        match value.get("event").and_then(|e| e.as_str()) {
+            Some("log") => {
+                if let Some(message) = value.get("message").and_then(|m| m.as_str()) {
+                    let _ = on_event.send(ProxyEvent::Log {
+                        message: message.to_string(),
+                    });
+                }
+                continue;
+            }
+            Some("progress") => {
+                if let Some(percent) = value.get("percent").and_then(|p| p.as_f64()) {
+                    let _ = on_event.send(ProxyEvent::Progress { percent });
+                }
+                continue;
+            }
+            _ => {}
+        }
+
+        if value.get("ok").is_some() {
+            final_response = serde_json::from_value(value).ok();
+            break;
+        }
+    }
+
+    let mut stderr = String::new();
+    if let Some(mut err_pipe) = child.stderr.take() {
+        use std::io::Read;
+        let _ = err_pipe.read_to_string(&mut stderr);
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+
+    let response =
+        final_response.ok_or_else(|| format!("Sidecar returned no response. stderr:\n{stderr}"))?;
+
+    if response.ok {
+        response
+            .result
+            .ok_or("Sidecar response missing result".to_string())
+    } else {
+        Err(format!(
+            "Sidecar error: {}\n\nstderr:\n{}",
+            response.error.unwrap_or_else(|| "Unknown error".to_string()),
+            stderr
+        ))
+    }
+}
+
 fn call_sidecar_streaming(
     app: &tauri::AppHandle,
     command: &str,
@@ -1075,7 +1357,10 @@ fn spawn_command(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Result<
 }
 
 fn spawn_sidecar(app: &tauri::AppHandle) -> Result<std::process::Child, String> {
-    if let Some(path) = resolve_sidecar_binary(app) {
+    // Debug builds only: YTCLIP_SIDECAR_SOURCE=1 runs the Python sources
+    // directly, so sidecar changes can be tried without a PyInstaller rebuild.
+    let force_source = cfg!(debug_assertions) && std::env::var_os("YTCLIP_SIDECAR_SOURCE").is_some();
+    if let Some(path) = resolve_sidecar_binary(app).filter(|_| !force_source) {
         return spawn_command(path, &[])
             .map_err(|e| format!("Failed to start bundled sidecar: {e}"));
     }
