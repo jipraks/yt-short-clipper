@@ -8,6 +8,14 @@ export const id: Messages = {
       en: "English",
     },
   },
+  onboarding: {
+    stepLabel: "Langkah {{n}}",
+    stepOf: "Langkah {{n}} dari {{total}}",
+    back: "Kembali",
+    finish: "Mulai pakai Cuplik",
+    finishing: "Menyimpan…",
+    finishFailed: "Progres belum tersimpan. Coba lagi.",
+  },
   languagePicker: {
     optionHint: "Menu dan panduan pakai Bahasa Indonesia.",
     confirm: "Pakai Bahasa Indonesia",
@@ -18,7 +26,6 @@ export const id: Messages = {
     title: "Sambungkan YouTube ke Cuplik",
     lead: "Cuplik mengunduh video YouTube pakai akunmu sendiri, lewat file cookies dari Chrome. Cukup dilakukan sekali.",
     privacy: "File ini berisi sesi login YouTube-mu. Cuplik menyimpannya di komputer ini saja dan hanya memakainya untuk mengakses YouTube.",
-    stepLabel: "Langkah {{n}}",
     steps: {
       install: {
         title: "Pasang ekstensi Get cookies.txt LOCALLY",
@@ -59,10 +66,40 @@ export const id: Messages = {
       readFailed: "File tidak bisa dibaca. Coba pilih lagi.",
       saveFailed: "Cookies tidak bisa disimpan: {{reason}}",
     },
-    finish: "Mulai pakai Cuplik",
-    finishing: "Menyimpan…",
-    finishFailed: "Progres belum tersimpan. Coba lagi.",
-    later: "Nanti saja",
+    next: "Lanjut ke saldo AI",
+    later: "Lewati dulu",
     laterHint: "Cuplik belum bisa mengunduh video sebelum YouTube tersambung. Kamu bisa melakukannya nanti dari halaman Create.",
+  },
+  onboardingAi: {
+    title: "Siapkan saldo AI",
+    lead: "Cuplik memakai AI untuk mencari momen terbaik di video dan menulis judul tiap klip. Biayanya dipotong dari saldo Cuplik sesuai pemakaian.",
+    balance: "Saldo",
+    status: {
+      loading: "Menyiapkan akun AI…",
+      inactive: "Akun AI belum aktif, biasanya karena tidak ada internet. Cek koneksi, lalu coba lagi.",
+      retry: "Coba lagi",
+      retrying: "Mencoba…",
+      unsupported: "Versi Cuplik ini sudah tidak bisa memakai saldo AI. Pasang versi terbaru dulu.",
+      balanceLoading: "Memuat saldo…",
+      balanceFailed: "Saldo belum bisa dimuat. Cek koneksi internet.",
+      blocked: "Akun ini dinonaktifkan. Hubungi support@ytclip.org.",
+    },
+    steps: {
+      backup: {
+        title: "Simpan Account Key",
+        body: "Account Key adalah satu-satunya cara mengembalikan saldo kalau Cuplik dipasang ulang atau pindah komputer. Simpan di tempat yang aman.",
+        action: "Simpan Account Key",
+        again: "Tampilkan key lagi",
+        done: "Account Key sudah disimpan.",
+      },
+      topup: {
+        title: "Isi saldo",
+        body: "Bayar dengan QRIS dari aplikasi bank atau e-wallet. Boleh dilewati dulu, isi saat kamu siap memproses video.",
+        action: "Isi saldo dengan QRIS",
+      },
+    },
+    restoreQuestion: "Sudah punya Account Key dari Cuplik sebelumnya?",
+    restore: "Pulihkan saldo",
+    emptyHint: "Saldo masih kosong. Kamu bisa isi kapan saja lewat tombol Top Up di sidebar.",
   },
 };

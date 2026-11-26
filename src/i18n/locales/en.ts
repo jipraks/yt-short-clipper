@@ -13,6 +13,14 @@ export const en = {
       en: "English",
     },
   },
+  onboarding: {
+    stepLabel: "Step {{n}}",
+    stepOf: "Step {{n}} of {{total}}",
+    back: "Back",
+    finish: "Start using Cuplik",
+    finishing: "Saving…",
+    finishFailed: "Your progress could not be saved. Try again.",
+  },
   languagePicker: {
     // Shown under this language's own option, so it is always in English.
     optionHint: "Menus and guides in English.",
@@ -24,7 +32,6 @@ export const en = {
     title: "Connect YouTube to Cuplik",
     lead: "Cuplik downloads YouTube videos with your own account, using a cookies file from Chrome. You only do this once.",
     privacy: "The file holds your YouTube login. Cuplik keeps it on this computer and only uses it to talk to YouTube.",
-    stepLabel: "Step {{n}}",
     steps: {
       install: {
         title: "Install the Get cookies.txt LOCALLY extension",
@@ -65,10 +72,40 @@ export const en = {
       readFailed: "The file could not be read. Try choosing it again.",
       saveFailed: "The cookies could not be saved: {{reason}}",
     },
-    finish: "Start using Cuplik",
-    finishing: "Saving…",
-    finishFailed: "Your progress could not be saved. Try again.",
-    later: "Do this later",
+    next: "Continue to AI balance",
+    later: "Skip for now",
     laterHint: "Cuplik can't download videos until YouTube is connected. You can do it later from the Create page.",
+  },
+  onboardingAi: {
+    title: "Set up your AI balance",
+    lead: "Cuplik uses AI to find the best moments in a video and to write each clip's title. The cost comes out of your Cuplik balance as you use it.",
+    balance: "Balance",
+    status: {
+      loading: "Setting up your AI account…",
+      inactive: "Your AI account is not active yet, usually because there was no internet. Check your connection and try again.",
+      retry: "Try again",
+      retrying: "Trying…",
+      unsupported: "This version of Cuplik can no longer use the AI balance. Install the latest version first.",
+      balanceLoading: "Loading your balance…",
+      balanceFailed: "Your balance could not be loaded. Check your internet connection.",
+      blocked: "This account has been disabled. Contact support@ytclip.org.",
+    },
+    steps: {
+      backup: {
+        title: "Save your Account Key",
+        body: "The Account Key is the only way to get your balance back if you reinstall Cuplik or move to another computer. Keep it somewhere safe.",
+        action: "Save Account Key",
+        again: "Show the key again",
+        done: "Your Account Key is saved.",
+      },
+      topup: {
+        title: "Top up your balance",
+        body: "Pay with QRIS from your bank or e-wallet app. You can skip this and top up when you are ready to process a video.",
+        action: "Top up with QRIS",
+      },
+    },
+    restoreQuestion: "Already have an Account Key from an earlier install?",
+    restore: "Restore my balance",
+    emptyHint: "Your balance is empty. You can top up any time from the Top Up button in the sidebar.",
   },
 };

@@ -16,7 +16,7 @@ import { ClipDetailPage } from "@/pages/ClipDetailPage";
 import { ReplizSettingsPage } from "@/pages/ReplizSettingsPage";
 import { CreditsPage } from "@/pages/CreditsPage";
 import { LanguagePickerPage } from "@/pages/LanguagePickerPage";
-import { CookiesStepPage } from "@/pages/onboarding/CookiesStepPage";
+import { OnboardingFlow } from "@/pages/onboarding/OnboardingFlow";
 import { UpdateDialog } from "@/components/UpdateDialog";
 import { NotificationDialog } from "@/components/NotificationDialog";
 import { checkForUpdate, type LatestVersionResponse } from "@/hooks/versionCheck";
@@ -61,7 +61,7 @@ function App() {
   if (language === null || !onboardingDone) {
     return (
       <>
-        {language === null ? <LanguagePickerPage /> : <CookiesStepPage />}
+        {language === null ? <LanguagePickerPage /> : <OnboardingFlow />}
         <Toaster position="bottom-right" richColors />
       </>
     );
